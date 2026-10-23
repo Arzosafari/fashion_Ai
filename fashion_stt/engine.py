@@ -17,12 +17,26 @@ from .extractor import FashionEntityExtractor
 
 
 DEFAULT_MODEL_PATH = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 
-    "models", 
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "models",
     "vosk-model-small-en-us-0.15"
 )
+CACHE_MODEL_PATH = os.path.expanduser("~/.cache/vosk-model-small-en-us-0.15")
 
 VOSK_MODEL_URL = "https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip"
+
+
+def _resolve_existing_model_path(explicit_path: Optional[str] = None) -> Optional[str]:
+    candidates = [
+        explicit_path,
+        os.environ.get("VOSK_MODEL_PATH"),
+        DEFAULT_MODEL_PATH,
+        CACHE_MODEL_PATH,
+    ]
+    for path in candidates:
+        if path and os.path.isdir(path):
+            return path
+    return None
 
 
 def download_model(target_path: Optional[str] = None) -> str:
@@ -57,28 +71,41 @@ class RealtimeTranscriber:
     """
 
     def __init__(
-        self, 
-        model_path: Optional[str] = None, 
+        self,
+        model_path: Optional[str] = None,
         sample_rate: int = 16000,
         enable_fashion_boosting: bool = True
     ):
         self.sample_rate = sample_rate
         self.enable_fashion_boosting = enable_fashion_boosting
-        self.model_path = model_path or DEFAULT_MODEL_PATH
-        
-        # Verify or auto-download model directory
-        if not os.path.isdir(self.model_path):
-            self.model_path = download_model(self.model_path)
+        resolved = _resolve_existing_model_path(model_path)
+        self.model_path = resolved or model_path or DEFAULT_MODEL_PATH
+        self.model: Optional[vosk.Model] = None
 
-        # Set vosk log level to suppress verbose Kaldi logs
         vosk.SetLogLevel(-1)
-        self.model = vosk.Model(self.model_path)
+        if os.path.isdir(self.model_path):
+            self.model = vosk.Model(self.model_path)
+
         self.extractor = FashionEntityExtractor()
         self._lock = threading.Lock()
 
+    def _ensure_model(self) -> vosk.Model:
+        if self.model is not None:
+            return self.model
+        with self._lock:
+            if self.model is not None:
+                return self.model
+            existing = _resolve_existing_model_path(self.model_path)
+            if existing:
+                self.model_path = existing
+            else:
+                self.model_path = download_model(self.model_path)
+            self.model = vosk.Model(self.model_path)
+            return self.model
+
     def create_recognizer(self, words: bool = True) -> vosk.KaldiRecognizer:
         """Creates a fresh Kaldi recognizer instance for a streaming session."""
-        rec = vosk.KaldiRecognizer(self.model, self.sample_rate)
+        rec = vosk.KaldiRecognizer(self._ensure_model(), self.sample_rate)
         rec.SetWords(words)
         return rec
 

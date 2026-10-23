@@ -54,6 +54,17 @@ document.addEventListener('DOMContentLoaded', () => {
   const clarificationBanner = document.getElementById('clarificationBanner');
   const clarificationQuestionText = document.getElementById('clarificationQuestionText');
   const confidenceBadge = document.getElementById('confidenceBadge');
+  const locationSettingInput = document.getElementById('locationSettingInput');
+  const weatherStatusPill = document.getElementById('weatherStatusPill');
+  const valWeatherLocation = document.getElementById('valWeatherLocation');
+  const valWeatherLocSource = document.getElementById('valWeatherLocSource');
+  const valWeatherWindow = document.getElementById('valWeatherWindow');
+  const valWeatherCacheTag = document.getElementById('valWeatherCacheTag');
+  const valWeatherTemp = document.getElementById('valWeatherTemp');
+  const valWeatherFeels = document.getElementById('valWeatherFeels');
+  const valWeatherCondition = document.getElementById('valWeatherCondition');
+  const valWeatherWind = document.getElementById('valWeatherWind');
+  const weatherUnavailableNote = document.getElementById('weatherUnavailableNote');
   const jsonOutput = document.getElementById('jsonOutput');
   const copyJsonBtn = document.getElementById('copyJsonBtn');
   const ttsAudioPlayer = document.getElementById('ttsAudioPlayer');
@@ -67,6 +78,12 @@ document.addEventListener('DOMContentLoaded', () => {
   let canvasCtx = visualizerCanvas.getContext('2d');
   let currentAudioLevel = 0;
   let sttInstance = null;
+  let activeJsonTab = 'request';
+  let latestPayloads = {
+    request: null,
+    weather: null,
+    combined: null
+  };
 
   // Initialize Canvas
   function resizeCanvas() {
@@ -305,6 +322,211 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
+  const NON_GEO_VENUES = new Set([
+    'outdoor', 'outdoors', 'indoor', 'indoors', 'beach', 'coast',
+    'beachside', 'office', 'workplace', 'campus', 'university',
+    'rooftop', 'restaurant', 'home', 'venue'
+  ]);
+
+  /**
+   * When the backend server runs inside a firewall-restricted container that cannot reach
+   * `api.open-meteo.com` directly (`status === 'network_error'`), fetches live keyless
+   * Open-Meteo JSON from the browser and sends it to `POST /api/weather/resolve` so the
+   * Python backend validates, normalizes, and caches it canonically.
+   */
+  async function relayLiveOpenMeteoIfSandboxed(structured, weather, explicitFallbackLoc) {
+    if (!weather || weather.available || weather.status !== 'network_error') {
+      return { weather, combined: latestPayloads.combined };
+    }
+
+    const reqLoc = structured && structured.location && structured.location.value
+      ? structured.location.value.trim()
+      : null;
+    const hasGeoReqLoc = reqLoc && !NON_GEO_VENUES.has(reqLoc.toLowerCase());
+    const locSource = weather.location
+      ? weather.location.source
+      : (hasGeoReqLoc ? 'request' : 'settings');
+    const candidateName = weather.location
+      ? weather.location.name
+      : (hasGeoReqLoc ? reqLoc : explicitFallbackLoc);
+
+    const dateTarget = (structured && structured.time && structured.time.source === 'explicit')
+      ? (structured.time.resolved || structured.time.expression)
+      : (weather.forecast_for || null);
+
+    if (weatherStatusPill) {
+      weatherStatusPill.className = 'weather-status-pill available';
+      weatherStatusPill.textContent = 'Fetching Live Weather...';
+    }
+    if (weatherUnavailableNote) {
+      weatherUnavailableNote.style.display = 'none';
+    }
+
+    try {
+      let lat = weather.location ? weather.location.latitude : null;
+      let lon = weather.location ? weather.location.longitude : null;
+      let geocodingPayload = null;
+
+      // Step 1: If city was outside built-in gazetteer, resolve coordinates via Open-Meteo Geocoding API
+      if ((lat === null || lon === null) && candidateName) {
+        const geoUrl = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(candidateName)}&count=1&language=en&format=json`;
+        const geoRes = await fetch(geoUrl);
+        if (geoRes.ok) {
+          geocodingPayload = await geoRes.json();
+          if (geocodingPayload && Array.isArray(geocodingPayload.results) && geocodingPayload.results.length > 0) {
+            lat = geocodingPayload.results[0].latitude;
+            lon = geocodingPayload.results[0].longitude;
+          } else {
+            // Unknown place -> let Python backend return canonical `invalid_location`
+            const invalidRes = await fetch('/api/weather/resolve', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                session_id: sessionId,
+                location: candidateName,
+                location_source: locSource,
+                date_or_time: dateTarget,
+                geocoding_payload: geocodingPayload || { results: [] }
+              })
+            });
+            if (invalidRes.ok) {
+              const parsedInvalid = await invalidRes.json();
+              return {
+                weather: parsedInvalid.weather_context,
+                combined: parsedInvalid.recommendation_context || latestPayloads.combined
+              };
+            }
+          }
+        }
+      }
+
+      if (lat === null || lon === null) {
+        return { weather, combined: latestPayloads.combined };
+      }
+
+      // Step 2: Query live Open-Meteo Forecast or Current Weather API
+      let forecastIsoDate = null;
+      if (weather.mode === 'forecast' || dateTarget) {
+        const rawWindow = weather.forecast_for || dateTarget || '';
+        const isoMatch = String(rawWindow).match(/^(\d{4}-\d{2}-\d{2})/);
+        if (isoMatch) {
+          forecastIsoDate = isoMatch[1];
+        }
+      }
+
+      let openMeteoUrl;
+      if (forecastIsoDate) {
+        openMeteoUrl =
+          `https://api.open-meteo.com/v1/forecast?latitude=${encodeURIComponent(lat)}&longitude=${encodeURIComponent(lon)}` +
+          `&start_date=${encodeURIComponent(forecastIsoDate)}&end_date=${encodeURIComponent(forecastIsoDate)}` +
+          `&hourly=temperature_2m,apparent_temperature,relative_humidity_2m,precipitation_probability,precipitation,wind_speed_10m,weather_code` +
+          `&daily=temperature_2m_max,temperature_2m_min,apparent_temperature_max,apparent_temperature_min,precipitation_sum,precipitation_probability_max,wind_speed_10m_max,weather_code` +
+          `&timezone=auto`;
+      } else {
+        openMeteoUrl =
+          `https://api.open-meteo.com/v1/forecast?latitude=${encodeURIComponent(lat)}&longitude=${encodeURIComponent(lon)}` +
+          `&current=temperature_2m,apparent_temperature,relative_humidity_2m,precipitation,wind_speed_10m,weather_code` +
+          `&timezone=auto`;
+      }
+
+      const providerHttp = await fetch(openMeteoUrl);
+      if (!providerHttp.ok) {
+        return { weather, combined: latestPayloads.combined };
+      }
+      const providerPayload = await providerHttp.json();
+
+      // Step 3: Submit raw Open-Meteo payload to Python backend for schema validation & TTL caching
+      const resolveRes = await fetch('/api/weather/resolve', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          session_id: sessionId,
+          location: candidateName,
+          latitude: lat,
+          longitude: lon,
+          location_source: locSource,
+          date_or_time: dateTarget,
+          geocoding_payload: geocodingPayload,
+          provider_payload: providerPayload
+        })
+      });
+
+      if (!resolveRes.ok) {
+        return { weather, combined: latestPayloads.combined };
+      }
+
+      const resolved = await resolveRes.json();
+      return {
+        weather: resolved.weather_context,
+        combined: resolved.recommendation_context || latestPayloads.combined
+      };
+    } catch (relayErr) {
+      console.warn('Live Open-Meteo relay unavailable:', relayErr);
+      return { weather, combined: latestPayloads.combined };
+    }
+  }
+
+  // Refresh Weather Context immediately when user updates optional header Location setting
+  async function refreshWeatherForLocationSetting() {
+    if (!locationSettingInput) return;
+    const locVal = locationSettingInput.value.trim();
+    const activeReq = latestPayloads.request;
+
+    // Do not override an explicit city that came directly from the active request utterance
+    if (activeReq && activeReq.location && activeReq.location.value && !NON_GEO_VENUES.has(activeReq.location.value.toLowerCase())) {
+      return;
+    }
+
+    const targetTime = (activeReq && activeReq.time && activeReq.time.source === 'explicit')
+      ? (activeReq.time.resolved || activeReq.time.expression)
+      : null;
+
+    const params = new URLSearchParams();
+    if (locVal) params.set('location', locVal);
+    if (targetTime) params.set('date_or_time', targetTime);
+
+    try {
+      const res = await fetch(`/api/weather?${params.toString()}`);
+      if (!res.ok) return;
+      let weather = await res.json();
+      if (locVal && weather.location) {
+        weather.location.source = 'settings';
+      }
+
+      const relayed = await relayLiveOpenMeteoIfSandboxed(activeReq, weather, locVal || null);
+      latestPayloads.weather = relayed.weather;
+      if (activeReq) {
+        latestPayloads.combined = relayed.combined || {
+          request_context: activeReq,
+          weather_context: relayed.weather
+        };
+      }
+      renderWeatherContext(relayed.weather);
+      renderActiveJsonTab();
+    } catch (err) {
+      console.warn('Weather setting refresh failed:', err);
+    }
+  }
+
+  if (locationSettingInput) {
+    let locDebounce = null;
+    locationSettingInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        clearTimeout(locDebounce);
+        refreshWeatherForLocationSetting();
+      }
+    });
+    locationSettingInput.addEventListener('change', () => {
+      clearTimeout(locDebounce);
+      refreshWeatherForLocationSetting();
+    });
+    locationSettingInput.addEventListener('input', () => {
+      clearTimeout(locDebounce);
+      locDebounce = setTimeout(refreshWeatherForLocationSetting, 650);
+    });
+  }
+
   // Core Request Submission Function (Unified Pipeline)
   async function submitRequest(text, inputMethod = 'text', rawTranscript = null) {
     if (isProcessing) return;
@@ -315,6 +537,10 @@ document.addEventListener('DOMContentLoaded', () => {
     addChatMessage('user', text, inputMethod);
 
     try {
+      const explicitFallbackLocation = locationSettingInput && locationSettingInput.value.trim()
+        ? locationSettingInput.value.trim()
+        : null;
+
       const response = await fetch('/api/understand', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -322,7 +548,8 @@ document.addEventListener('DOMContentLoaded', () => {
           text: text,
           session_id: sessionId,
           input_method: inputMethod,
-          raw_transcript: rawTranscript
+          raw_transcript: rawTranscript,
+          location: explicitFallbackLocation
         })
       });
 
@@ -339,8 +566,22 @@ document.addEventListener('DOMContentLoaded', () => {
       // Play Audio TTS
       playSpokenFeedback(data.assistant_response, data.tts_url);
 
-      // Render Structured Features & JSON
+      // Render user request features immediately
+      latestPayloads.request = data.structured_data || null;
+      latestPayloads.combined = data.recommendation_context || null;
       renderStructuredFeatures(data.structured_data);
+
+      // Resolve weather (uses direct backend response when online, or live Open-Meteo HTTPS relay if sandboxed)
+      const resolvedWeather = await relayLiveOpenMeteoIfSandboxed(
+        data.structured_data,
+        data.weather_context,
+        explicitFallbackLocation
+      );
+      latestPayloads.weather = resolvedWeather.weather || data.weather_context || null;
+      latestPayloads.combined = resolvedWeather.combined || data.recommendation_context || null;
+
+      renderWeatherContext(latestPayloads.weather);
+      renderActiveJsonTab();
 
     } catch (err) {
       console.error('Request understanding error:', err);
@@ -448,10 +689,87 @@ document.addEventListener('DOMContentLoaded', () => {
     // Confidence
     const conf = Math.round((data.confidence_score || 0.9) * 100);
     confidenceBadge.textContent = `Confidence: ${conf}%`;
-
-    // JSON Viewer
-    jsonOutput.innerHTML = `<code>${escapeHtml(JSON.stringify(data, null, 2))}</code>`;
   }
+
+  function renderWeatherContext(weather) {
+    if (!weather || !weatherStatusPill) return;
+
+    if (weather.available) {
+      weatherStatusPill.className = 'weather-status-pill available';
+      weatherStatusPill.textContent = weather.mode === 'forecast' ? 'Forecast Ready' : 'Current Weather Ready';
+
+      valWeatherLocation.textContent = weather.location
+        ? `${weather.location.name}${weather.location.country ? ', ' + weather.location.country : ''}`
+        : 'Resolved';
+      valWeatherLocSource.textContent = weather.location ? weather.location.source : 'request';
+
+      valWeatherWindow.textContent = weather.mode === 'forecast'
+        ? `forecast (${weather.forecast_for || 'scheduled'})`
+        : `current (${weather.observed_at || 'live'})`;
+      valWeatherCacheTag.textContent = weather.cached ? 'cached' : 'fresh';
+
+      valWeatherTemp.textContent = weather.temperature
+        ? `${weather.temperature.value}°${weather.temperature.unit}`
+        : '—';
+
+      if (weather.feels_like) {
+        valWeatherFeels.textContent = `Feels like: ${weather.feels_like.value}°${weather.feels_like.unit}`;
+      } else if (weather.temperature_range) {
+        valWeatherFeels.textContent = `Range: ${weather.temperature_range.min}°–${weather.temperature_range.max}°${weather.temperature_range.unit}`;
+      } else {
+        valWeatherFeels.textContent = 'Feels like: N/A';
+      }
+
+      valWeatherCondition.textContent = weather.condition
+        ? weather.condition.replace(/_/g, ' ')
+        : 'Reported';
+
+      const windPart = weather.wind_speed ? `${weather.wind_speed.value} ${weather.wind_speed.unit}` : 'N/A';
+      const precipPart = weather.precipitation_probability !== null && weather.precipitation_probability !== undefined
+        ? `${weather.precipitation_probability}% prob`
+        : (weather.precipitation ? `${weather.precipitation.value} ${weather.precipitation.unit}` : 'N/A');
+      valWeatherWind.textContent = `Wind: ${windPart} • Precip: ${precipPart}`;
+      weatherUnavailableNote.style.display = 'none';
+      weatherUnavailableNote.textContent = '';
+    } else {
+      weatherStatusPill.className = 'weather-status-pill unavailable';
+      weatherStatusPill.textContent = `Unavailable (${weather.status || 'unavailable'})`;
+
+      valWeatherLocation.textContent = weather.location ? weather.location.name : 'None';
+      valWeatherLocSource.textContent = weather.location ? weather.location.source : 'none';
+      valWeatherWindow.textContent = weather.forecast_for || weather.mode || 'None';
+      valWeatherCacheTag.textContent = 'unavailable';
+      valWeatherTemp.textContent = '—';
+      valWeatherFeels.textContent = 'Feels like: —';
+      valWeatherCondition.textContent = '—';
+      valWeatherWind.textContent = 'Wind: — • Precip: —';
+
+      if (weather.message) {
+        weatherUnavailableNote.style.display = 'block';
+        weatherUnavailableNote.textContent = weather.message;
+      } else {
+        weatherUnavailableNote.style.display = 'none';
+      }
+    }
+  }
+
+  function renderActiveJsonTab() {
+    const selected = latestPayloads[activeJsonTab];
+    if (!selected) {
+      jsonOutput.innerHTML = `<code>{\n  "status": "awaiting_input"\n}</code>`;
+      return;
+    }
+    jsonOutput.innerHTML = `<code>${escapeHtml(JSON.stringify(selected, null, 2))}</code>`;
+  }
+
+  document.querySelectorAll('.json-tab').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.json-tab').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      activeJsonTab = btn.dataset.view || 'request';
+      renderActiveJsonTab();
+    });
+  });
 
   function renderBadgeChips(container, items, className) {
     if (!items || items.length === 0) {
@@ -509,6 +827,20 @@ document.addEventListener('DOMContentLoaded', () => {
     functionalChips.innerHTML = '<span class="chip-empty">None</span>';
     constraintRow.style.display = 'none';
     clarificationBanner.style.display = 'none';
+    latestPayloads = { request: null, weather: null, combined: null };
+    if (weatherStatusPill) {
+      weatherStatusPill.className = 'weather-status-pill unavailable';
+      weatherStatusPill.textContent = 'Awaiting Request';
+      valWeatherLocation.textContent = 'None';
+      valWeatherLocSource.textContent = 'none';
+      valWeatherWindow.textContent = 'None';
+      valWeatherCacheTag.textContent = 'live';
+      valWeatherTemp.textContent = '—';
+      valWeatherFeels.textContent = 'Feels like: —';
+      valWeatherCondition.textContent = '—';
+      valWeatherWind.textContent = 'Wind: — • Precip: —';
+      weatherUnavailableNote.style.display = 'none';
+    }
     jsonOutput.innerHTML = `<code>{\n  "status": "awaiting_input"\n}</code>`;
   }
 

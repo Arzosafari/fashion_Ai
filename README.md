@@ -1,193 +1,195 @@
-# Fashion AI — User Request Understanding Module
+# Fashion AI — Request Understanding & Weather Context Integration
 
-A dedicated, production-ready natural language understanding module for Fashion AI that accepts **English voice or text input**, performs domain-optimized speech-to-text, maintains conversational state across multi-turn follow-ups, and outputs **validated, machine-readable structured JSON** for the Outfit Recommendation Engine.
+A modular, production-ready natural language understanding and contextual integration layer for **Fashion AI**. It accepts **English voice or typed input**, performs domain-optimized speech-to-text, maintains session-scoped multi-turn conversational memory, retrieves **independent environmental weather context** via **Open-Meteo** (`agents/weather_agent.py`), and produces **validated, machine-readable structured JSON** for the future Outfit Recommendation Engine.
 
 ---
 
-## 🌟 Architecture & Data Flow
+## 🌟 Architecture & Request Lifecycle
 
 ```text
-       USER INPUT (Voice or Text)
-                  │
-      ┌───────────┴───────────┐
-      ↓                       ↓
-Voice Recording         Keyboard Typing
-      │                       │
-Speech-to-Text (Vosk / WebSpeech) │
-      │                       │
-Editable Transcript Review    │
-      └───────────┬───────────┘
-                  ↓
-      Request Normalization & Phonetic Lexicon
-                  ↓
-      Multi-Turn Conversational Memory (Session-scoped)
-                  ↓
-      Intent & Semantic Feature Extraction
-      ├── Intent Classification (outfit_recommendation, modification, styling_advice)
-      ├── Occasion & Formality (explicit vs inferred)
-      ├── Temporal Resolution (relative & explicit dates)
-      ├── Location Extraction (cities, venues)
-      ├── Garments (+ Included / - Excluded)
-      ├── Colors (+ Preferred / - Excluded)
-      ├── Fit, Silhouette & Functional Requirements
-      └── Constraints & Negations Preservation
-                  ↓
-      Pydantic Schema Validation
-                  ↓
-      Validated Machine-Readable JSON Output
-                  │
-      ┌───────────┴───────────┐
-      ↓                       ↓
-Text-to-Speech Spoken    Future Recommendation
-    Confirmation                Engine
+                       USER INPUT
+                      /          \
+               Voice Input    Typed Input
+                      \          /
+                Editable Text Request
+                           |
+           Request Processing & Phonetic Lexicon
+                           |
+             Structured User Request (Pydantic)
+                           |
+                           +------------------------+
+                           |                        |
+                           v                        v
+            FashionRequestOutput           WeatherContextService
+          (User Request Features)        (agents/weather_agent.py)
+                           |                        |
+                           |                 WeatherContext
+                           |                        |
+                           +-----------+------------+
+                                       |
+                              ContextIntegrator
+                         (RecommendationContext JSON)
+                                       |
+                         Future Recommendation Engine
 ```
+
+### Design Invariants
+1. **Strict Separation of Concerns**: `FashionRequestOutput` captures *only* the user's request (`intent`, `occasion`, `location`, `time`, `style_preferences`, `garment_preferences`, `colors`, `fit_preferences`, `functional_requirements`, `constraints`). Environmental observations and forecasts live exclusively in `WeatherContext` and are never injected into user transcripts or converted into permanent style preferences.
+2. **Existing Weather Module Preserved**: Reuses `agents/weather_agent.py` (`WeatherAgent`, Open-Meteo `/v1/forecast`), keeping `WeatherAgent.get_weather(latitude, longitude) -> dict` intact while supporting current observations, hourly sub-day forecast windows, daily forecasts up to 16 days ahead, and Open-Meteo geocoding.
+3. **Graceful Degradation**: Weather or network failures never break voice transcription, transcript editing, TTS audio feedback, or `POST /api/understand`. Unavailable weather states are represented explicitly with `available: false` and a typed `status` code rather than fabricated weather values.
 
 ---
 
-## 📋 Structured Output Schema
+## 📍 Location Resolution Priority
 
-The module outputs a strict, validated Pydantic schema (`FashionRequestOutput`):
+`LocationResolver` (`fashion_stt/weather_context.py`) resolves geographic locations strictly in priority order:
 
+1. **Explicit Geographic Location in Current User Request (`source = "request"`)**  
+   Extracted cities/places in the spoken or typed request (e.g., *"I need an outfit for tomorrow morning in Boston"*). Non-geographic venue descriptors (*"outdoor"*, *"office"*, *"restaurant"*, *"beach"*, *"campus"*, *"rooftop"*) are preserved on `FashionRequestOutput.location` for downstream reasoning without being misinterpreted as city names.
+2. **Explicit Application / Request Setting (`source = "settings"` or `"coordinates"`)**  
+   Optional `location` or `(latitude, longitude)` supplied on the request payload, configured via `WEATHER_DEFAULT_LOCATION` / `WEATHER_DEFAULT_LATITUDE` + `WEATHER_DEFAULT_LONGITUDE`, or supplied by a modular `fallback_provider` callable hook ready for future User Profile Module integration.
+3. **Unavailable (`status = "missing_location"`, `available = false`)**  
+   If neither source provides a geographic location, no fallback city or IP guess is ever invented.
+
+---
+
+## 🕒 Time & Forecast Selection
+
+- **Unspecified time (`null`) / `"now"`**: Queries Open-Meteo current observations (`mode = "current"`, sets `observed_at`).
+- **Same-day or future sub-day windows** (*"this morning"*, *"this afternoon"*, *"tonight"*, *"tomorrow morning"*): Queries Open-Meteo hourly forecast series for the exact local hour window (`08:00–11:00`, `12:00–17:00`, `18:00–21:00`) on the resolved target date (`mode = "forecast"`, sets `forecast_for`, e.g., `"2026-10-24 morning"`).
+- **Whole-day future dates** (*"tomorrow"*, *"this Saturday"*, *"this weekend"*, `"YYYY-MM-DD"`): Queries Open-Meteo daily & hourly forecast summaries (`mode = "forecast"`, sets `forecast_for`, `temperature_range`, `precipitation_probability`).
+- **Out-of-range dates** (past dates or dates `> 16` days ahead such as *"next month"* or `"2026-12-20"`): Returns `available = false`, `status = "unsupported_forecast_date"` without silently substituting current weather conditions.
+
+---
+
+## 📡 Backend API & Data Contracts
+
+Authentication: None required (local/service API; CORS enabled).
+
+### 1. `POST /api/understand`
+Processes typed or transcribed spoken requests and returns separated user request and weather contexts.
+
+**Request Body (`UnderstandRequest`):**
 ```json
 {
-  "intent": {
-    "type": "outfit_recommendation",
-    "description": "An outfit for job interview",
-    "is_clear": true
-  },
-  "occasion": {
-    "value": "job interview",
-    "formality": "formal",
-    "source": "explicit"
-  },
-  "location": {
-    "value": "New York",
-    "source": "explicit"
-  },
-  "time": {
-    "expression": "tomorrow",
-    "resolved": "2026-10-13",
-    "source": "explicit"
-  },
-  "style_preferences": [
-    {
-      "value": "minimalist",
-      "source": "explicit"
-    }
-  ],
-  "garment_preferences": {
-    "include": ["blazer"],
-    "exclude": ["jeans"]
-  },
-  "colors": {
-    "preferred": ["navy", "cream"],
-    "excluded": ["black"]
-  },
-  "fit_preferences": ["tailored"],
-  "functional_requirements": ["warmth", "comfort"],
-  "constraints": ["budget: under $150", "don't want to wear heels"],
-  "additional_details": [],
-  "missing_information": [],
-  "clarification_needed": false,
-  "clarification_question": null,
-  "raw_input": "I need something to wear to a job interview tomorrow in New York.",
-  "clean_input": "I need something to wear to a job interview tomorrow in New York.",
-  "input_method": "text",
+  "text": "I need an outfit for tomorrow morning in Boston.",
   "session_id": "session_a1b2c3d4",
-  "turn_index": 1,
-  "confidence_score": 0.95
+  "input_method": "text",
+  "raw_transcript": null,
+  "location": null,
+  "latitude": null,
+  "longitude": null
 }
 ```
 
----
+**Response Body (`UnderstandResponse`):**
+- `structured_data`: `FashionRequestOutput` (user request features only)
+- `weather_context`: `WeatherContext` (environmental weather context only)
+- `recommendation_context`: `RecommendationContext` (`{ "request_context": ..., "weather_context": ... }`)
+- `assistant_response`, `tts_url`, `session_id`, `turn_index`
 
-## ⚡ Key Capabilities
+### 2. `GET /api/weather`
+Standalone environmental weather endpoint.
 
-### 1. Unified Voice and Text Pipeline
-- **Keyboard Typing**: Fully functional text input with instant Enter key submission.
-- **Voice Recording**: Dual-engine support (Browser Web Speech API for 0ms latency + Vosk Kaldi WebSocket streaming).
-- **Transcript Review & Correction**: Users can inspect and edit their speech transcripts before submitting to the NLP pipeline, or toggle auto-submit.
-- **Duplicate Prevention**: Buttons and inputs are locked during processing to prevent duplicate turns.
+**Query Parameters:**
+| Parameter | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| `location` | `string` | Conditional | City/region name (e.g., `"Boston"`) or `"lat, lon"` string. Required unless coordinates or `WEATHER_DEFAULT_LOCATION` are set. |
+| `latitude` | `float` | Conditional | Latitude in `[-90.0, 90.0]` (must be paired with `longitude`). |
+| `longitude` | `float` | Conditional | Longitude in `[-180.0, 180.0]` (must be paired with `latitude`). |
+| `date_or_time` | `string` | Optional | ISO date (`"2026-10-24"`), date + window (`"2026-10-24 morning"`), or relative phrase (`"this afternoon"`, `"this Saturday"`). |
 
-### 2. Multi-Turn Conversational Memory
-Maintains dialogue history across turns without conflating temporary request context with persistent user profile attributes:
-- **Turn 1**: *"I need an outfit for a graduation ceremony."*  
-  ➔ `occasion = "graduation"`
-- **Turn 2**: *"Make it more minimalist."*  
-  ➔ `occasion = "graduation"`, `styles = ["minimalist"]`
-- **Turn 3**: *"Actually, avoid black."*  
-  ➔ `occasion = "graduation"`, `styles = ["minimalist"]`, `colors.excluded = ["black"]`
+**Response Schema (`WeatherContext`):**
+```json
+{
+  "available": true,
+  "status": "ok",
+  "mode": "forecast",
+  "message": null,
+  "location": {
+    "name": "Boston",
+    "latitude": 42.3601,
+    "longitude": -71.0589,
+    "country": "United States",
+    "timezone": "America/New_York",
+    "source": "request"
+  },
+  "observed_at": null,
+  "forecast_for": "2026-10-24 morning",
+  "temperature": { "value": 9.5, "unit": "C" },
+  "temperature_range": { "min": 8.5, "max": 11.0, "unit": "C" },
+  "feels_like": { "value": 7.5, "unit": "C" },
+  "condition": "light_rain",
+  "humidity": { "value": 0.8, "unit": "ratio" },
+  "precipitation": { "value": 2.5, "unit": "mm" },
+  "precipitation_probability": 65.0,
+  "wind_speed": { "value": 14.0, "unit": "km/h" },
+  "agent_metrics": {
+    "temp": 9.5,
+    "humidity": 0.8,
+    "precipitation": 0.025,
+    "wind_speed": 14.0
+  },
+  "source": "open-meteo",
+  "cached": false,
+  "fetched_at": "2026-10-23T13:20:00Z",
+  "cache_expires_at": "2026-10-23T13:30:00Z"
+}
+```
 
-### 3. Negation & Exclusion Preservation
-Explicitly distinguishes positive preferences from negative constraints:
-- *"I want to wear something other than jeans"* ➔ `garment_preferences.exclude: ["jeans"]`
-- *"Formal dinner, but I don't want to wear heels"* ➔ `garment_preferences.exclude: ["heels"]`, `constraints: ["not want to wear heels"]`
-- *"Avoid black and red"* ➔ `colors.excluded: ["black", "red"]`
-
-### 4. Ambiguity Detection & Clarification
-- If a request is genuinely ambiguous (e.g., *"Make it more formal"* without prior conversation context):
-  - Sets `clarification_needed = true`
-  - Generates targeted clarification question: *"What event or outfit would you like to modify?"*
-- If the request is clear, proceeds immediately without unnecessary questions.
-
-### 5. Spoken Audio Feedback (TTS)
-- Confirms understood requests with natural spoken audio:  
-  *"Got it! Looking for a formal and minimalist outfit for job interview tomorrow. (Avoiding black.)"*
-- Includes play, pause, stop, and mute controls.
-
----
-
-## 🧪 Evaluation Results
-
-The module includes an automated benchmark suite (`tests/`):
-
-### A. Speech-to-Text Evaluation (`tests/test_stt_evaluation.py`)
-Tested across representative English fashion audio samples using dynamic programming Levenshtein Word Error Rate:
-* **Corpus Word Error Rate (WER)**: **2.00%** (1 error across 50 words)
-  * `sample_outerwear.wav`: **0.00% WER**
-  * `sample_dress.wav`: **0.00% WER**
-  * `sample_houndstooth.wav`: **0.00% WER**
-  * `sample_knitwear.wav`: **9.09% WER**
-* **Negation Preservation in STT**: **100%**
-
-### B. Feature Extraction Evaluation (`tests/test_feature_extraction_evaluation.py`)
-Tested across complex requests, negative preferences, follow-ups, and ambiguities:
-* **Intent Classification Accuracy**: **100.0%**
-* **Occasion Extraction Accuracy**: **100.0%**
-* **Clarification / Ambiguity Accuracy**: **100.0%**
-* **Negation Preservation Rate**: **100.0%**
-* **Garment Exclusion Precision / Recall / F1**: **1.00 / 1.00 / 1.00**
-* **Color Preferences Precision / Recall / F1**: **1.00 / 1.00 / 1.00**
-
-### C. Functional Integration Tests (`tests/test_unified_pipeline.py`)
-All 11 criteria from Section 12.3 verified and passing:
-1. Typed request reaches shared pipeline: **PASS**
-2. Voice request transcribed and reaches same pipeline: **PASS**
-3. Transcript can be edited before submission: **PASS**
-4. Consistent output across input methods: **PASS**
-5. Negative preferences preserved: **PASS**
-6. Follow-up updates request state: **PASS**
-7. Missing details are not fabricated: **PASS**
-8. Invalid input handled safely: **PASS**
-9. Permission and error feedback: **PASS**
-10. Text-to-speech functional: **PASS**
-11. Self-contained offline resilience: **PASS**
+### Units & Explicit Error States
+- **Units**: Temperature & Feels-Like in `"C"` (Celsius), Wind Speed in `"km/h"`, Precipitation amount in `"mm"`, Humidity normalized ratio in `[0.0, 1.0]` (`unit: "ratio"`, matching `WeatherAgent.get_weather()`), Forecast Precipitation Probability in `[0.0, 100.0]` (`%`). Note: Open-Meteo `/v1/forecast` does not provide government weather alerts, so alert fields are never fabricated.
+- **Status Codes (`WeatherContext.status`)**:
+  - `"ok"` — Fresh or valid cached weather data available (`available: true`)
+  - `"missing_location"` — No geographic location supplied in request or settings
+  - `"invalid_location"` — Out-of-bounds coordinates or unrecognized place name
+  - `"unsupported_forecast_date"` — Past date, date `> 16` days out, or unparseable temporal expression
+  - `"timeout"` — Upstream weather request timed out
+  - `"network_error"` — Upstream connection/TLS failure
+  - `"rate_limited"` — Provider returned HTTP `429`
+  - `"invalid_credentials"` — Provider rejected API key (`401`/`403`)
+  - `"invalid_response"` — Non-JSON or malformed field types
+  - `"missing_weather_fields"` — Required provider weather fields missing or null
 
 ---
 
-## 🚀 Running the Module
+## ⚙️ Environment Variables & Caching
+
+Open-Meteo's free forecast and geocoding endpoints require **no API key**. Optional environment variables (documented in `.env.example`):
+
+- `PORT` (default `8000`): FastAPI HTTP/WebSocket server port.
+- `WEATHER_API_BASE_URL` (default `https://api.open-meteo.com/v1/forecast`): Forecast & current observation endpoint.
+- `WEATHER_GEOCODING_URL` (default `https://geocoding-api.open-meteo.com/v1/search`): Place geocoding endpoint.
+- `WEATHER_API_KEY` (optional, unset by default): Commercial Open-Meteo API key if used; never hardcoded or exposed to frontend clients.
+- `WEATHER_API_TIMEOUT` (default `10`): HTTP request timeout in seconds (`WeatherAgent()` direct default remains `15`).
+- `WEATHER_CACHE_TTL_SECONDS` (default `600`): TTL in seconds for bounded thread-safe in-memory `WeatherCache` (`0` disables caching; expired entries are evicted immediately and never served as live weather).
+- `WEATHER_CACHE_MAX_SIZE` (default `128`): Maximum cached `(lat, lon, mode, window)` entries.
+- `WEATHER_MAX_FORECAST_DAYS` (default `16`): Supported Open-Meteo forecast horizon in days.
+- `WEATHER_TIMEZONE` (default `auto`): Provider timezone resolution setting.
+- `WEATHER_DEFAULT_LOCATION` / `WEATHER_DEFAULT_LATITUDE` / `WEATHER_DEFAULT_LONGITUDE` (unset by default): Optional explicit deployment fallback location.
+
+---
+
+## 🚀 Running & Verifying the Application
 
 ```bash
 # 1. Install dependencies
 pip install -r requirements.txt
 
-# 2. Run the server
+# 2. Launch the web application & API server
 python run_server.py
 ```
+
 Open **`http://localhost:8000`** in your browser.
 
-Run tests:
+### Running Automated Tests
+
 ```bash
-python -m unittest discover tests
-# 31 tests passed in 9.89s (OK)
+# Run full unit, STT WER evaluation, NLU evaluation, and weather integration suite:
+python -m unittest discover -v tests
+# or with pytest:
+pytest -v
 ```
+
+- **Mocked unit & pipeline integration tests** (`TestMockedWeatherModuleIntegration` + all existing STT/NLU suites) run deterministically offline without external network dependencies.
+- **Live Open-Meteo provider integration test** (`TestLiveOpenMeteoProviderIntegration`) automatically executes against `https://api.open-meteo.com/v1/forecast` whenever outbound internet access to Open-Meteo is reachable, and skips cleanly with an explicit notice in network-isolated sandboxes.

@@ -3,6 +3,13 @@ import os
 from fashion_stt.engine import RealtimeTranscriber
 
 
+SAMPLES_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "public",
+    "samples",
+)
+
+
 class TestTranscriberEngine(unittest.TestCase):
 
     @classmethod
@@ -10,7 +17,7 @@ class TestTranscriberEngine(unittest.TestCase):
         cls.transcriber = RealtimeTranscriber()
 
     def test_transcribe_audio_sample(self):
-        sample_path = "/home/user/public/samples/sample_outerwear.wav"
+        sample_path = os.path.join(SAMPLES_DIR, "sample_outerwear.wav")
         if not os.path.exists(sample_path):
             self.skipTest(f"Sample file {sample_path} not found")
 
@@ -23,7 +30,7 @@ class TestTranscriberEngine(unittest.TestCase):
         self.assertIn("black", result["entities"]["colors"])
 
     def test_chunk_streaming(self):
-        sample_path = "/home/user/public/samples/sample_dress.wav"
+        sample_path = os.path.join(SAMPLES_DIR, "sample_dress.wav")
         if not os.path.exists(sample_path):
             self.skipTest(f"Sample file {sample_path} not found")
 

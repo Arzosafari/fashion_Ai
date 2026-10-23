@@ -2,8 +2,8 @@ from setuptools import setup, find_packages
 
 setup(
     name="fashion-stt",
-    version="1.0.0",
-    description="Real-time English Speech-to-Text Module for Fashion Applications",
+    version="2.1.0",
+    description="Fashion AI Voice & Text Request Understanding and Weather Context Integration",
     author="Arena AI",
     packages=find_packages(),
     install_requires=[
@@ -12,7 +12,9 @@ setup(
         "uvicorn>=0.28.0",
         "websockets>=12.0",
         "python-multipart>=0.0.9",
-        "gTTS>=2.5.0"
+        "gTTS>=2.5.0",
+        "requests>=2.31.0",
+        "httpx>=0.27.0",
     ],
     entry_points={
         "console_scripts": [

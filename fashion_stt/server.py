@@ -7,6 +7,7 @@ real-time speech-to-text, text-to-speech audio feedback, and structured output i
 import os
 import re
 import json
+import datetime
 import logging
 from typing import Optional, List, Dict, Any
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File, Form, HTTPException, Query, Response
@@ -18,7 +19,19 @@ from pydantic import BaseModel
 from .engine import RealtimeTranscriber
 from .extractor import FashionEntityExtractor
 from .conversation import ConversationManager
-from .models import UnderstandRequest, UnderstandResponse, FashionRequestOutput
+from .models import (
+    UnderstandRequest,
+    UnderstandResponse,
+    FashionRequestOutput,
+    WeatherContext,
+    RecommendationContext,
+    WeatherResolveRequest,
+    WeatherResolveResponse,
+)
+from .weather_context import (
+    ContextIntegrator,
+    WeatherContextService,
+)
 from .tts import generate_tts_audio
 from .lexicon import get_all_fashion_terms, correct_fashion_text
 
@@ -188,11 +201,14 @@ FASHION_CATALOG = [
 ]
 
 
-def create_app() -> FastAPI:
+def create_app(
+    weather_service: Optional[WeatherContextService] = None,
+    reference_date: Optional[datetime.date] = None,
+) -> FastAPI:
     app = FastAPI(
-        title="Fashion AI — User Request Understanding Module",
-        description="Unified Voice & Text Input, Accurate English STT, Feature Extraction, and Structured Recommendation Output",
-        version="2.0.0"
+        title="Fashion AI — Request Understanding & Weather Context Module",
+        description="Unified Voice & Text Input, Accurate English STT, Feature Extraction, and Independent Weather Context Integration",
+        version="2.1.0"
     )
 
     # CORS configuration
@@ -204,19 +220,36 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
-    # Initialize core services
+    @app.middleware("http")
+    async def no_cache_static_assets(request, call_next):
+        response = await call_next(request)
+        path = request.url.path
+        if path == "/" or path.endswith((".html", ".js", ".css")):
+            response.headers["Cache-Control"] = "no-cache, must-revalidate"
+        return response
+
+    # Initialize core services cleanly decoupled from one another
     transcriber = RealtimeTranscriber()
-    extractor = FashionEntityExtractor()
+    extractor = FashionEntityExtractor(reference_date=reference_date)
     conversation_manager = ConversationManager(extractor=extractor)
+    active_weather_service = weather_service or WeatherContextService(reference_date=reference_date)
+    context_integrator = ContextIntegrator(weather_service=active_weather_service)
+    session_weather_snapshots: Dict[str, WeatherContext] = {}
+
+    # Expose services on app.state for inspection & modularity
+    app.state.weather_service = active_weather_service
+    app.state.context_integrator = context_integrator
+    app.state.conversation_manager = conversation_manager
 
     @app.get("/api/health")
     async def health_check():
         return {
             "status": "healthy",
-            "module": "User Request Understanding Module",
-            "version": "2.0.0",
+            "module": "User Request Understanding & Weather Context Module",
+            "version": "2.1.0",
             "language": "en",
             "model": "vosk-model-small-en-us-0.15",
+            "weather_provider": "open-meteo",
             "input_methods": ["text", "voice"],
             "features": [
                 "unified_pipeline",
@@ -224,17 +257,87 @@ def create_app() -> FastAPI:
                 "conversational_follow_ups",
                 "ambiguity_detection",
                 "structured_json_schema",
-                "text_to_speech"
+                "text_to_speech",
+                "weather_context"
             ],
             "lexicon_terms_count": len(get_all_fashion_terms())
         }
 
+    @app.get("/api/weather", response_model=WeatherContext)
+    async def get_weather_endpoint(
+        location: Optional[str] = Query(
+            default=None,
+            description="City/place name (e.g., 'Boston') or 'lat, lon' coordinate pair."
+        ),
+        latitude: Optional[float] = Query(
+            default=None,
+            description="Geographic latitude in degrees [-90, 90]."
+        ),
+        longitude: Optional[float] = Query(
+            default=None,
+            description="Geographic longitude in degrees [-180, 180]."
+        ),
+        date_or_time: Optional[str] = Query(
+            default=None,
+            description="Optional ISO date (YYYY-MM-DD) or natural window ('this afternoon', 'tomorrow morning', 'this Saturday')."
+        ),
+        date: Optional[str] = Query(
+            default=None,
+            description="Optional alias parameter for date_or_time."
+        ),
+    ):
+        """
+        Standalone Environmental Weather Context Endpoint.
+        Retrieves validated current or forecast weather context independently of the voice/text NLU pipeline.
+        """
+        target_time = date_or_time if date_or_time is not None else date
+        return active_weather_service.get_weather_context(
+            location=location,
+            date_or_time=target_time,
+            latitude=latitude,
+            longitude=longitude,
+            location_source="coordinates" if (latitude is not None or longitude is not None) else "request",
+        )
+
+    @app.post("/api/weather/resolve", response_model=WeatherResolveResponse)
+    async def resolve_weather_from_relay(payload: WeatherResolveRequest):
+        """
+        Validates raw Open-Meteo JSON payloads through `WeatherAgent` schema parsers,
+        stores fresh entries in `WeatherCache`, and binds separated `WeatherContext` to
+        the active session without modifying `FashionRequestOutput`.
+        """
+        weather_context = active_weather_service.resolve_from_provider_payload(
+            location=payload.location,
+            latitude=payload.latitude,
+            longitude=payload.longitude,
+            location_source=payload.location_source,
+            date_or_time=payload.date_or_time,
+            geocoding_payload=payload.geocoding_payload,
+            provider_payload=payload.provider_payload,
+        )
+
+        recommendation_context: Optional[RecommendationContext] = None
+        if payload.session_id:
+            session_weather_snapshots[payload.session_id] = weather_context
+            session = conversation_manager.sessions.get(payload.session_id)
+            if session and session.active_request is not None:
+                recommendation_context = RecommendationContext(
+                    request_context=session.active_request.model_copy(deep=True),
+                    weather_context=weather_context,
+                )
+
+        return WeatherResolveResponse(
+            weather_context=weather_context,
+            recommendation_context=recommendation_context,
+        )
+
     @app.post("/api/understand", response_model=UnderstandResponse)
     async def understand_user_request(payload: UnderstandRequest):
         """
-        Unified Request Understanding Endpoint.
-        Accepts either typed text or transcribed voice, merges multi-turn conversational context,
-        extracts structured fashion features, and returns validated JSON for the recommendation engine.
+        Unified Request Understanding & Context Integration Endpoint.
+        1. Extracts structured user request features independently via ConversationManager.
+        2. Retrieves environmental weather context independently via ContextIntegrator.
+        3. Returns both objects cleanly separated without mutating user preferences or transcripts.
         """
         if not payload.text or not payload.text.strip():
             raise HTTPException(status_code=400, detail="Text request cannot be empty.")
@@ -246,6 +349,16 @@ def create_app() -> FastAPI:
                 input_method=payload.input_method,
                 raw_transcript=payload.raw_transcript
             )
+
+            # Build aggregated RecommendationContext without failing if weather is unavailable
+            recommendation_context = context_integrator.build_context(
+                structured_request=structured_data,
+                fallback_location=payload.location,
+                fallback_latitude=payload.latitude,
+                fallback_longitude=payload.longitude,
+            )
+            weather_context = recommendation_context.weather_context
+            session_weather_snapshots[session_id] = weather_context
 
             # Generate TTS URL for spoken audio feedback
             import urllib.parse
@@ -259,6 +372,8 @@ def create_app() -> FastAPI:
                 user_message=payload.text,
                 assistant_response=assistant_response,
                 structured_data=structured_data,
+                weather_context=weather_context,
+                recommendation_context=recommendation_context,
                 tts_url=tts_url
             )
         except Exception as e:
@@ -279,6 +394,7 @@ def create_app() -> FastAPI:
     async def reset_session(session_id: str = Query(..., description="Session ID to clear")):
         """Clears active conversational context for a given session."""
         success = conversation_manager.reset_session(session_id)
+        session_weather_snapshots.pop(session_id, None)
         return {"status": "success", "session_id": session_id, "reset": success}
 
     @app.get("/api/session/{session_id}")
@@ -287,11 +403,13 @@ def create_app() -> FastAPI:
         session = conversation_manager.sessions.get(session_id)
         if not session:
             raise HTTPException(status_code=404, detail="Session not found")
+        latest_weather = session_weather_snapshots.get(session_id)
         return {
             "session_id": session_id,
             "turn_count": session.turn_index,
             "history": session.history,
-            "active_request": session.active_request.model_dump() if session.active_request else None
+            "active_request": session.active_request.model_dump() if session.active_request else None,
+            "weather_context": latest_weather.model_dump() if latest_weather else None,
         }
 
     @app.post("/api/transcribe")

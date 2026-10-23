@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Fashion AI — User Request Understanding Module</title>
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="style.css?v=2.1.1">
 </head>
 <body>
   <div class="app-container">
@@ -13,9 +13,19 @@
       <div class="header-brand">
         <div class="brand-badge">FASHION AI &bull; REQUEST UNDERSTANDING MODULE</div>
         <h1 class="brand-title">ATELIER<span>INTELLIGENCE</span></h1>
-        <p class="brand-subtitle">Natural Voice &amp; Text Input &bull; Accurate Speech-to-Text &bull; Structured Feature Extraction</p>
+        <p class="brand-subtitle">Natural Voice &amp; Text Input &bull; Structured Feature Extraction &bull; Environmental Weather Context</p>
       </div>
       <div class="header-controls">
+        <div class="location-setting-group" title="Optional fallback location used only when your spoken/typed request does not mention a city">
+          <span class="loc-icon">📍</span>
+          <input
+            type="text"
+            id="locationSettingInput"
+            class="location-input"
+            placeholder="Location (optional, e.g. Boston)"
+            autocomplete="off"
+          />
+        </div>
         <button id="resetSessionBtn" class="btn-ghost" title="Start a new conversation session">
           <span>🔄 New Session</span>
         </button>
@@ -264,10 +274,50 @@
             </div>
           </div>
 
+          <!-- Independent Environmental Weather Context Card -->
+          <div class="weather-context-section" id="weatherContextSection">
+            <div class="weather-header">
+              <div>
+                <h4><span>🌦️</span> Environmental Weather Context <span class="independent-tag">Independent Module</span></h4>
+                <p class="weather-subdesc">Retrieved via Open-Meteo separately from user request &amp; style preferences.</p>
+              </div>
+              <span class="weather-status-pill unavailable" id="weatherStatusPill">Awaiting Request</span>
+            </div>
+
+            <div class="weather-metrics-grid" id="weatherMetricsGrid">
+              <div class="weather-stat">
+                <span class="box-label">RESOLVED LOCATION</span>
+                <strong id="valWeatherLocation">None</strong>
+                <span class="source-tag" id="valWeatherLocSource">none</span>
+              </div>
+              <div class="weather-stat">
+                <span class="box-label">MODE / WINDOW</span>
+                <strong id="valWeatherWindow">None</strong>
+                <span class="source-tag" id="valWeatherCacheTag">live</span>
+              </div>
+              <div class="weather-stat">
+                <span class="box-label">TEMPERATURE</span>
+                <strong id="valWeatherTemp">—</strong>
+                <span class="val-desc" id="valWeatherFeels">Feels like: —</span>
+              </div>
+              <div class="weather-stat">
+                <span class="box-label">CONDITIONS &amp; WIND</span>
+                <strong id="valWeatherCondition">—</strong>
+                <span class="val-desc" id="valWeatherWind">Wind: — &bull; Precip: —</span>
+              </div>
+            </div>
+            <div class="weather-unavailable-note" id="weatherUnavailableNote" style="display: none;"></div>
+          </div>
+
           <!-- JSON Schema Output View -->
           <div class="json-viewer-section">
             <div class="json-header">
-              <span class="json-title">Machine-Readable JSON Schema Output</span>
+              <div class="json-tabs">
+                <span class="json-title">JSON Contract:</span>
+                <button class="json-tab active" data-view="request" id="tabRequestJson">Request Context</button>
+                <button class="json-tab" data-view="weather" id="tabWeatherJson">Weather Context</button>
+                <button class="json-tab" data-view="combined" id="tabCombinedJson">Aggregated Context</button>
+              </div>
               <button id="copyJsonBtn" class="btn-copy">📋 Copy JSON</button>
             </div>
             <pre id="jsonOutput"><code>{\n  "status": "awaiting_input"\n}</code></pre>
@@ -280,7 +330,7 @@
   <!-- Hidden Audio Element for Text-to-Speech Playback -->
   <audio id="ttsAudioPlayer" preload="auto"></audio>
 
-  <script src="fashion-stt.js"></script>
-  <script src="app.js"></script>
+  <script src="fashion-stt.js?v=2.1.1"></script>
+  <script src="app.js?v=2.1.1"></script>
 </body>
 </html>
