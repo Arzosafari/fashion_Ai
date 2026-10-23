@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Fashion AI — User Request Understanding Module</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app-container">
+    <!-- Top Navigation & Status -->
+    <header class="app-header">
+      <div class="header-brand">
+        <div class="brand-badge">FASHION AI &bull; REQUEST UNDERSTANDING MODULE</div>
+        <h1 class="brand-title">ATELIER<span>INTELLIGENCE</span></h1>
+        <p class="brand-subtitle">Natural Voice &amp; Text Input &bull; Accurate Speech-to-Text &bull; Structured Feature Extraction</p>
+      </div>
+      <div class="header-controls">
+        <button id="resetSessionBtn" class="btn-ghost" title="Start a new conversation session">
+          <span>🔄 New Session</span>
+        </button>
+        <button id="toggleTtsBtn" class="btn-ghost active" title="Toggle spoken audio responses">
+          <span id="ttsIcon">🔊</span> <span id="ttsLabel">Voice Feedback: ON</span>
+        </button>
+        <button id="openNewTabBtn" class="btn-gold" title="Open in standalone tab for direct microphone permission">
+          <span>↗ Open in Standalone Tab</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- Permission Warning Banner -->
+    <div id="permissionBanner" class="permission-banner" style="display: none;">
+      <div class="banner-icon">⚠️</div>
+      <div class="banner-content">
+        <h4>Microphone Access Restricted in Embedded Preview</h4>
+        <p>Browsers restrict microphone access inside iframes. You can open in a standalone tab, type your request, test audio files, or use presets below:</p>
+        <div class="banner-actions">
+          <button id="bannerNewTabBtn" class="btn-gold-action">↗ Open in Standalone Tab (Recommended)</button>
+          <button id="bannerTrySampleBtn" class="btn-ghost-action">▶ Use Spoken Sample</button>
+        </div>
+      </div>
+      <button id="closeBannerBtn" class="banner-close" aria-label="Close">&times;</button>
+    </div>
+
+    <!-- Main Workspace Layout -->
+    <main class="main-layout">
+      <!-- Left Column: Unified Conversation & Input Stream -->
+      <section class="conversation-panel">
+        <div class="card conversation-card">
+          <div class="card-header">
+            <h3><span class="icon">💬</span> Fashion Dialogue &amp; Request Flow</h3>
+            <span class="status-pill" id="sessionPill">Session Active</span>
+          </div>
+
+          <!-- Conversation Message Stream -->
+          <div class="chat-stream" id="chatStream">
+            <div class="chat-message assistant-message">
+              <div class="msg-avatar">👗</div>
+              <div class="msg-bubble">
+                <p>Hello! I am your <strong>Fashion AI Request Understanding Assistant</strong>. You can speak naturally or type what you would like to wear.</p>
+                <span class="msg-tip">Try: <em>"I need something to wear to a job interview tomorrow"</em> or <em>"Suggest an outfit for a formal dinner, but avoid heels"</em>.</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Voice Recording & Transcript Review Box -->
+          <div class="voice-review-box" id="voiceReviewBox" style="display: none;">
+            <div class="review-header">
+              <span class="review-title">🎙️ Review &amp; Edit Speech Transcript Before Submitting</span>
+              <span class="recording-indicator" id="recordingIndicator">Recording...</span>
+            </div>
+            <!-- Audio Waveform Visualizer -->
+            <canvas id="visualizerCanvas" width="460" height="60"></canvas>
+            
+            <div class="transcript-editor-wrapper">
+              <textarea id="editableTranscript" rows="2" placeholder="Listening to speech..."></textarea>
+            </div>
+            <div class="review-actions">
+              <button id="cancelVoiceBtn" class="btn-secondary btn-sm">Discard</button>
+              <button id="stopRecordBtn" class="btn-secondary btn-sm" style="display: none;">Stop Recording</button>
+              <button id="submitVoiceBtn" class="btn-gold btn-sm">Submit Transcript &rarr;</button>
+            </div>
+          </div>
+
+          <!-- Unified Input Controls (Voice + Text) -->
+          <div class="unified-input-wrapper">
+            <div class="input-container">
+              <!-- Mic Button -->
+              <button id="micBtn" class="mic-toggle-btn" title="Speak your request" aria-label="Voice input">
+                <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"></path>
+                  <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                  <line x1="12" y1="19" x2="12" y2="23"></line>
+                  <line x1="8" y1="23" x2="16" y2="23"></line>
+                </svg>
+              </button>
+
+              <!-- Text Input -->
+              <input 
+                type="text" 
+                id="textInput" 
+                placeholder="Type your fashion request or click mic to speak..." 
+                autocomplete="off"
+              />
+
+              <!-- Send Button -->
+              <button id="sendBtn" class="send-btn" title="Send Request (Enter)" aria-label="Send">
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
+                  <line x1="22" y1="2" x2="11" y2="13"></line>
+                  <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                </svg>
+              </button>
+            </div>
+
+            <div class="input-footer">
+              <span class="input-hint">Press <strong>Enter</strong> to submit &bull; Microphone supports continuous speech</span>
+              <label class="auto-submit-toggle">
+                <input type="checkbox" id="autoSubmitCheck" checked>
+                <span>Auto-submit voice when speech pauses</span>
+              </label>
+            </div>
+          </div>
+
+          <!-- Quick Test Prompt Chips -->
+          <div class="quick-prompts-section">
+            <span class="prompts-label">Quick Test Requests:</span>
+            <div class="prompts-grid">
+              <button class="prompt-chip" data-text="I need something to wear to a job interview tomorrow.">
+                💼 Job interview tomorrow
+              </button>
+              <button class="prompt-chip" data-text="Can you help me put together an outfit for a wedding?">
+                💒 Wedding outfit
+              </button>
+              <button class="prompt-chip" data-text="Suggest something elegant but comfortable for dinner tonight.">
+                🍷 Elegant dinner tonight
+              </button>
+              <button class="prompt-chip" data-text="I want a casual look for walking around New York.">
+                🗽 Casual in New York
+              </button>
+              <button class="prompt-chip" data-text="Give me something minimalist, preferably in navy or cream.">
+                🎨 Minimalist navy or cream
+              </button>
+              <button class="prompt-chip" data-text="I want to wear something other than jeans.">
+                🚫 Other than jeans
+              </button>
+              <button class="prompt-chip" data-text="I need an outfit for a formal dinner, but I don't want to wear heels.">
+                👠 Formal dinner, no heels
+              </button>
+              <button class="prompt-chip" data-text="Make it more minimalist and avoid black.">
+                🔄 Follow-up: Avoid black
+              </button>
+              <button class="prompt-chip" data-text="Make it more formal.">
+                ❓ Ambiguity test
+              </button>
+            </div>
+          </div>
+
+          <!-- Audio File Upload Dropzone -->
+          <div class="audio-upload-wrapper">
+            <div class="upload-dropzone" id="dropzone">
+              <input type="file" id="fileUploadInput" accept="audio/*,.wav,.mp3,.m4a,.ogg,.webm" style="display: none;">
+              <span class="upload-icon">🎙️</span>
+              <span class="upload-text">Upload voice memo / audio file (WAV, MP3, M4A)</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Right Column: Structured Output Inspector for Recommendation Engine -->
+      <section class="inspector-panel">
+        <div class="card inspector-card">
+          <div class="card-header">
+            <h3><span class="icon">⚙️</span> Structured Request Features</h3>
+            <span class="confidence-pill" id="confidenceBadge">Confidence: 95%</span>
+          </div>
+          <p class="inspector-desc">Validated machine-readable output produced for the Outfit Recommendation Engine.</p>
+
+          <!-- High-Level Feature Summary Grid -->
+          <div class="feature-summary-grid">
+            <!-- Intent Card -->
+            <div class="feature-box" id="boxIntent">
+              <span class="box-label">INTENT</span>
+              <div class="box-content">
+                <span class="val-pill" id="valIntentType">outfit_recommendation</span>
+                <span class="val-desc" id="valIntentDesc">Waiting for request...</span>
+              </div>
+            </div>
+
+            <!-- Occasion & Formality -->
+            <div class="feature-box" id="boxOccasion">
+              <span class="box-label">OCCASION &amp; FORMALITY</span>
+              <div class="box-content">
+                <span class="val-highlight" id="valOccasion">None</span>
+                <span class="val-tag" id="valFormality">None</span>
+                <span class="source-tag" id="valOccasionSource">unknown</span>
+              </div>
+            </div>
+
+            <!-- Time & Location -->
+            <div class="feature-box" id="boxTimeLoc">
+              <span class="box-label">TIME &amp; LOCATION</span>
+              <div class="box-content">
+                <div class="sub-item"><span>Time:</span> <strong id="valTime">None</strong></div>
+                <div class="sub-item"><span>Location:</span> <strong id="valLocation">None</strong></div>
+              </div>
+            </div>
+
+            <!-- Garment Preferences -->
+            <div class="feature-box" id="boxGarments">
+              <span class="box-label">GARMENTS (+ Included / - Excluded)</span>
+              <div class="box-chips">
+                <div class="chip-row">
+                  <span class="chip-legend">Include:</span>
+                  <div id="garmentIncludeChips" class="chips-container"><span class="chip-empty">None</span></div>
+                </div>
+                <div class="chip-row">
+                  <span class="chip-legend text-neg">Exclude:</span>
+                  <div id="garmentExcludeChips" class="chips-container"><span class="chip-empty">None</span></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Color Preferences -->
+            <div class="feature-box" id="boxColors">
+              <span class="box-label">COLORS (+ Preferred / - Excluded)</span>
+              <div class="box-chips">
+                <div class="chip-row">
+                  <span class="chip-legend">Preferred:</span>
+                  <div id="colorPrefChips" class="chips-container"><span class="chip-empty">None</span></div>
+                </div>
+                <div class="chip-row">
+                  <span class="chip-legend text-neg">Excluded:</span>
+                  <div id="colorExcludeChips" class="chips-container"><span class="chip-empty">None</span></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Style & Functional Requirements -->
+            <div class="feature-box" id="boxStyles">
+              <span class="box-label">STYLES &amp; FUNCTIONAL REQUIREMENTS</span>
+              <div class="box-chips">
+                <div class="chip-row">
+                  <span class="chip-legend">Styles:</span>
+                  <div id="styleChips" class="chips-container"><span class="chip-empty">None</span></div>
+                </div>
+                <div class="chip-row">
+                  <span class="chip-legend">Functional:</span>
+                  <div id="functionalChips" class="chips-container"><span class="chip-empty">None</span></div>
+                </div>
+                <div class="chip-row" id="constraintRow" style="display: none;">
+                  <span class="chip-legend text-neg">Constraints:</span>
+                  <div id="constraintChips" class="chips-container"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Clarification Alert (Shown when clarification is needed) -->
+          <div class="clarification-banner" id="clarificationBanner" style="display: none;">
+            <div class="clarification-icon">❓</div>
+            <div class="clarification-text">
+              <strong>Ambiguity Detected:</strong>
+              <p id="clarificationQuestionText">What event or outfit would you like to make more formal?</p>
+            </div>
+          </div>
+
+          <!-- JSON Schema Output View -->
+          <div class="json-viewer-section">
+            <div class="json-header">
+              <span class="json-title">Machine-Readable JSON Schema Output</span>
+              <button id="copyJsonBtn" class="btn-copy">📋 Copy JSON</button>
+            </div>
+            <pre id="jsonOutput"><code>{\n  "status": "awaiting_input"\n}</code></pre>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- Hidden Audio Element for Text-to-Speech Playback -->
+  <audio id="ttsAudioPlayer" preload="auto"></audio>
+
+  <script src="fashion-stt.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
