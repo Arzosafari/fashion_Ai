@@ -1,22 +1,22 @@
 """
-Command Line Interface for Fashion STT
+Command Line Interface for Fashion AI Request Understanding & Weather Context
 Usage:
     fashion-stt --file audio.wav
-    fashion-stt --text "I want a hound tooth blazer"
+    fashion-stt --text "I want a hound tooth blazer for tomorrow in Boston"
+    fashion-stt --weather "Boston" --date "tomorrow morning"
     fashion-stt --serve --port 8000
 """
 
 import argparse
-import sys
 import json
 from .engine import RealtimeTranscriber
 from .extractor import FashionEntityExtractor
-from .lexicon import correct_fashion_text
+from .weather_context import ContextIntegrator, WeatherContextService
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Fashion STT: Real-time English Speech-to-Text for Fashion Projects"
+        description="Fashion AI: Real-time English Speech-to-Text, Feature Extraction & Weather Context"
     )
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument(
@@ -27,7 +27,12 @@ def main():
     group.add_argument(
         "--text", "-t",
         type=str,
-        help="Test fashion phonetic correction and entity extraction on raw text."
+        help="Run fashion phonetic correction, feature extraction, and context integration on text."
+    )
+    group.add_argument(
+        "--weather", "-w",
+        type=str,
+        help="Query environmental weather context directly for a location (e.g., 'Boston')."
     )
     group.add_argument(
         "--serve", "-s",
@@ -35,6 +40,18 @@ def main():
         help="Start the FastAPI real-time streaming WebSocket & REST server."
     )
 
+    parser.add_argument(
+        "--location",
+        type=str,
+        default=None,
+        help="Optional fallback location setting when using --text."
+    )
+    parser.add_argument(
+        "--date",
+        type=str,
+        default=None,
+        help="Optional forecast date or period when using --weather (e.g. '2026-10-24', 'tomorrow morning')."
+    )
     parser.add_argument(
         "--port", "-p",
         type=int,
@@ -52,14 +69,22 @@ def main():
 
     if args.serve:
         import uvicorn
-        print(f"👗 Launching Fashion STT Real-time Server on http://{args.host}:{args.port}")
+        print(f"👗 Launching Fashion AI Server on http://{args.host}:{args.port}")
         uvicorn.run("fashion_stt.server:app", host=args.host, port=args.port, reload=False)
+        return
+
+    if args.weather is not None:
+        service = WeatherContextService()
+        ctx = service.get_weather_context(location=args.weather, date_or_time=args.date)
+        print(json.dumps(ctx.model_dump(), indent=2))
         return
 
     if args.text:
         extractor = FashionEntityExtractor()
-        res = extractor.extract(args.text)
-        print(json.dumps(res, indent=2))
+        req = extractor.extract(args.text)
+        integrator = ContextIntegrator(WeatherContextService())
+        combined = integrator.build_context(req, fallback_location=args.location)
+        print(json.dumps(combined.model_dump(), indent=2))
         return
 
     if args.file:

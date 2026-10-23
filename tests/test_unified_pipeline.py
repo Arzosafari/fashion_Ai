@@ -45,7 +45,12 @@ class TestUnifiedPipelineIntegration(unittest.TestCase):
 
     # 2. Voice request is transcribed and reaches the same pipeline
     def test_02_voice_request_transcribed_and_processed(self):
-        sample_path = "/home/user/public/samples/sample_outerwear.wav"
+        sample_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "public",
+            "samples",
+            "sample_outerwear.wav",
+        )
         if not os.path.exists(sample_path):
             self.skipTest(f"{sample_path} not found")
 

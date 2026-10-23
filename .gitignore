@@ -48,6 +48,11 @@ models/vosk-model-*/
 audio_cache/
 *.log
 
+# Local environment secrets (keep .env.example tracked)
+.env
+.env.*
+!.env.example
+
 # Packaging artifacts
 fashion-stt.zip
 push_to_github.sh

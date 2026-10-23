@@ -50,6 +50,13 @@ def calculate_wer(reference: str, hypothesis: str) -> Tuple[float, int, int, int
     return wer, distance, r_len
 
 
+SAMPLES_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "public",
+    "samples",
+)
+
+
 class TestSTTEvaluation(unittest.TestCase):
 
     @classmethod
@@ -58,28 +65,28 @@ class TestSTTEvaluation(unittest.TestCase):
         # Reference audio test set with verified ground-truth transcripts
         cls.eval_set = [
             {
-                "file": "/home/user/public/samples/sample_outerwear.wav",
+                "file": os.path.join(SAMPLES_DIR, "sample_outerwear.wav"),
                 "reference": "find me an oversized vintage leather bomber jacket in black under one hundred fifty dollars",
                 "key_garment": "bomber jacket",
                 "key_material": "leather",
                 "key_color": "black"
             },
             {
-                "file": "/home/user/public/samples/sample_dress.wav",
+                "file": os.path.join(SAMPLES_DIR, "sample_dress.wav"),
                 "reference": "show me an emerald green silk slip dress for a summer wedding",
                 "key_garment": "slip dress",
                 "key_material": "silk",
                 "key_color": "emerald"
             },
             {
-                "file": "/home/user/public/samples/sample_houndstooth.wav",
+                "file": os.path.join(SAMPLES_DIR, "sample_houndstooth.wav"),
                 "reference": "looking for a tailored houndstooth blazer in beige under two hundred dollars",
                 "key_garment": "blazer",
                 "key_pattern": "houndstooth",
                 "key_color": "beige"
             },
             {
-                "file": "/home/user/public/samples/sample_knitwear.wav",
+                "file": os.path.join(SAMPLES_DIR, "sample_knitwear.wav"),
                 "reference": "i want a pure cashmere beige turtleneck sweater in size medium",
                 "key_garment": "turtleneck",
                 "key_material": "cashmere"

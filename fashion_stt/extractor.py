@@ -5,6 +5,7 @@ times, styles, garments, colors, fits, functional requirements, constraints, neg
 from natural English speech or typed text.
 """
 
+import os
 import re
 import datetime
 from typing import Dict, Any, List, Optional, Tuple, Set
@@ -29,8 +30,18 @@ from .models import (
     ColorPreferencesModel
 )
 
-# Reference date for relative temporal resolution (2026-10-12)
-REFERENCE_DATE = datetime.date(2026, 10, 12)
+def _default_reference_date() -> datetime.date:
+    env_date = os.environ.get("FASHION_REFERENCE_DATE")
+    if env_date:
+        try:
+            return datetime.date.fromisoformat(env_date.strip())
+        except ValueError:
+            pass
+    return datetime.date.today()
+
+
+# Default reference date helper (uses current date or FASHION_REFERENCE_DATE override)
+REFERENCE_DATE = _default_reference_date()
 
 WORD_NUMBERS = {
     "zero": 0, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
@@ -117,12 +128,25 @@ FORMALITY_KEYWORDS = {
     r"\bsporty|sportswear|athletic\b": "sportswear"
 }
 
-# Location Keywords (Cities, Venues, Countries)
-LOCATION_KEYWORDS = [
-    "New York", "Paris", "London", "Milan", "Tokyo", "Los Angeles", "Rome", 
-    "Chicago", "San Francisco", "Miami", "Berlin", "Dubai", "Sydney", 
-    "Toronto", "Venice", "Barcelona", "Amsterdam", "Copenhagen", "Tehran"
-]
+# Location Keywords (Cities & Major Metropolitan Regions — sorted longest-first during matching)
+LOCATION_KEYWORDS = sorted([
+    "New York", "Paris", "London", "Milan", "Tokyo", "Los Angeles", "Rome",
+    "Chicago", "San Francisco", "Miami", "Berlin", "Dubai", "Sydney",
+    "Toronto", "Venice", "Barcelona", "Amsterdam", "Copenhagen", "Tehran",
+    "Shiraz", "Isfahan", "Tabriz", "Mashhad", "Karaj", "Rasht", "Yazd",
+    "Kerman", "Ahvaz", "Qom", "Kish", "Baku", "Tbilisi", "Yerevan",
+    "Boston", "Dallas", "Fort Worth", "San Antonio", "Plano", "Arlington",
+    "Frisco", "Irving", "Austin", "Houston", "Seattle", "Washington",
+    "Philadelphia", "Phoenix", "Denver", "Atlanta", "San Diego", "Portland",
+    "Las Vegas", "Minneapolis", "Detroit", "Montreal", "Vancouver",
+    "Mexico City", "Edinburgh", "Manchester", "Dublin", "Munich", "Frankfurt",
+    "Hamburg", "Madrid", "Lisbon", "Brussels", "Vienna", "Zurich", "Geneva",
+    "Nice", "Monaco", "Antalya", "Stockholm", "Oslo", "Helsinki", "Reykjavik",
+    "Prague", "Warsaw", "Budapest", "Athens", "Istanbul", "Doha", "Riyadh",
+    "Cairo", "Kyoto", "Seoul", "Singapore", "Hong Kong", "Bangkok", "Mumbai",
+    "Delhi", "Beijing", "Shanghai", "Taipei", "Melbourne", "Auckland",
+    "Buenos Aires"
+], key=lambda x: -len(x))
 
 # Functional Requirements Keywords
 FUNCTIONAL_KEYWORDS = {
@@ -167,7 +191,7 @@ class FashionEntityExtractor:
     """
 
     def __init__(self, reference_date: Optional[datetime.date] = None):
-        self.ref_date = reference_date or REFERENCE_DATE
+        self.ref_date = reference_date or _default_reference_date()
         self._build_dictionaries()
 
     def _build_dictionaries(self):
@@ -183,6 +207,28 @@ class FashionEntityExtractor:
         self.materials_sorted = sorted(FASHION_MATERIALS, key=lambda x: -len(x))
         self.patterns_sorted = sorted(FASHION_PATTERNS, key=lambda x: -len(x))
         self.brands_sorted = sorted(FASHION_BRANDS, key=lambda x: -len(x))
+
+        # Build lowercase vocabulary blocklist so "in <Capitalized Place>" never matches fashion terms
+        self._non_location_terms: Set[str] = {
+            "small", "medium", "large", "size", "xs", "xxs", "xl", "xxl",
+            "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
+            "january", "february", "march", "april", "may", "june", "july",
+            "august", "september", "october", "november", "december",
+            "spring", "summer", "fall", "autumn", "winter", "morning", "afternoon", "evening",
+            "general", "mind", "advance", "addition", "style",
+        }
+        for group in (
+            self.garments_sorted,
+            self.colors_sorted,
+            self.styles_sorted,
+            self.materials_sorted,
+            self.patterns_sorted,
+            self.brands_sorted,
+        ):
+            for phrase in group:
+                self._non_location_terms.add(phrase.lower())
+                for token in phrase.lower().split():
+                    self._non_location_terms.add(token)
 
     def _make_plural_regex(self, word: str) -> str:
         escaped = re.escape(word)
@@ -390,13 +436,26 @@ class FashionEntityExtractor:
 
     def _extract_location(self, text: str) -> LocationModel:
         """Extracts explicit location, city, or venue. Never infers from IP."""
-        # 1. Known cities
+        # 1. Known cities & metropolitan regions
         for city in LOCATION_KEYWORDS:
             pattern = rf"\b{re.escape(city)}\b"
             if re.search(pattern, text, re.IGNORECASE):
                 return LocationModel(value=city, source="explicit")
 
-        # 2. General location contexts (e.g. "outdoor event", "on the beach")
+        # 2. Explicit capitalized place names following location prepositions (e.g., "in Ithaca", "visiting Kyoto")
+        cap_match = re.search(
+            r"\b(?:in|visiting|traveling\s+to|travelling\s+to|flying\s+to|going\s+to)\s+([A-Z][a-zA-Z]{2,}(?:\s+[A-Z][a-zA-Z]{2,})?)\b",
+            text,
+        )
+        if cap_match:
+            candidate = cap_match.group(1).strip()
+            tokens = [t.lower() for t in candidate.split()]
+            if candidate.lower() not in self._non_location_terms and not any(
+                tok in self._non_location_terms for tok in tokens
+            ):
+                return LocationModel(value=candidate, source="explicit")
+
+        # 3. General venue contexts (e.g. "outdoor event", "on the beach")
         loc_patterns = [
             (r"\b(outdoor|outdoors)\b", "outdoor"),
             (r"\b(beach|coast|beachside)\b", "beach"),
@@ -412,25 +471,118 @@ class FashionEntityExtractor:
         return LocationModel(value=None, source="unknown")
 
     def _extract_time(self, text: str) -> TimeModel:
-        """Resolves relative dates and temporal expressions using REFERENCE_DATE (2026-10-12)."""
-        time_matches = [
-            (r"\btomorrow\b", "tomorrow", (self.ref_date + datetime.timedelta(days=1)).isoformat()),
-            (r"\btonight|this\s+evening\b", "tonight", f"{self.ref_date.isoformat()} evening"),
-            (r"\btoday|this\s+afternoon\b", "today", self.ref_date.isoformat()),
-            (r"\bthis\s+weekend\b", "this weekend", "2026-10-17"),
-            (r"\bnext\s+weekend\b", "next weekend", "2026-10-24"),
-            (r"\bnext\s+week\b", "next week", "2026-10-19"),
-            (r"\bfriday\b", "Friday", "2026-10-16"),
-            (r"\bsaturday\b", "Saturday", "2026-10-17"),
-            (r"\bsunday\b", "Sunday", "2026-10-18")
-        ]
+        """Resolves relative dates, weekdays, sub-day windows, and explicit ISO dates against self.ref_date."""
+        # 1. Explicit ISO date (e.g. 2026-10-25 or 2026-10-25 morning)
+        iso_m = re.search(
+            r"\b(\d{4}-\d{2}-\d{2})(?:\s+(morning|afternoon|evening|night))?\b",
+            text,
+            re.IGNORECASE,
+        )
+        if iso_m:
+            expr = iso_m.group(0).strip()
+            resolved = f"{iso_m.group(1)} {iso_m.group(2).lower()}" if iso_m.group(2) else iso_m.group(1)
+            return TimeModel(expression=expr, resolved=resolved, source="explicit")
 
-        for pat, expr, resolved in time_matches:
-            if re.search(pat, text, re.IGNORECASE):
+        # 2. Tomorrow + optional period ("tomorrow morning", "tomorrow afternoon", "tomorrow evening", "tomorrow")
+        tom_m = re.search(
+            r"\btomorrow(?:\s+(morning|afternoon|evening|night))?\b",
+            text,
+            re.IGNORECASE,
+        )
+        if tom_m:
+            next_day = (self.ref_date + datetime.timedelta(days=1)).isoformat()
+            period = tom_m.group(1).lower() if tom_m.group(1) else None
+            if period == "night":
+                period = "evening"
+            expr = f"tomorrow {tom_m.group(1).lower()}" if tom_m.group(1) else "tomorrow"
+            resolved = f"{next_day} {period}" if period else next_day
+            return TimeModel(expression=expr, resolved=resolved, source="explicit")
+
+        # 3. Same-day windows ("this morning", "this afternoon", "tonight", "this evening", "today")
+        if re.search(r"\btonight\b", text, re.IGNORECASE):
+            return TimeModel(
+                expression="tonight",
+                resolved=f"{self.ref_date.isoformat()} evening",
+                source="explicit",
+            )
+        this_period_m = re.search(r"\bthis\s+(morning|afternoon|evening|night)\b", text, re.IGNORECASE)
+        if this_period_m:
+            raw_p = this_period_m.group(1).lower()
+            norm_p = "evening" if raw_p == "night" else raw_p
+            return TimeModel(
+                expression=f"this {raw_p}",
+                resolved=f"{self.ref_date.isoformat()} {norm_p}",
+                source="explicit",
+            )
+        if re.search(r"\btoday\b", text, re.IGNORECASE):
+            return TimeModel(
+                expression="today",
+                resolved=self.ref_date.isoformat(),
+                source="explicit",
+            )
+
+        # 4. Relative spans ("this weekend", "next weekend", "next week", "next month", "in N days/weeks")
+        days_until_sat = (5 - self.ref_date.weekday()) % 7
+        if re.search(r"\bnext\s+weekend\b", text, re.IGNORECASE):
+            return TimeModel(
+                expression="next weekend",
+                resolved=(self.ref_date + datetime.timedelta(days=days_until_sat + 7)).isoformat(),
+                source="explicit",
+            )
+        if re.search(r"\bthis\s+weekend\b", text, re.IGNORECASE):
+            return TimeModel(
+                expression="this weekend",
+                resolved=(self.ref_date + datetime.timedelta(days=days_until_sat)).isoformat(),
+                source="explicit",
+            )
+        if re.search(r"\bnext\s+week\b", text, re.IGNORECASE):
+            return TimeModel(
+                expression="next week",
+                resolved=(self.ref_date + datetime.timedelta(days=7)).isoformat(),
+                source="explicit",
+            )
+        if re.search(r"\bnext\s+month\b", text, re.IGNORECASE):
+            return TimeModel(
+                expression="next month",
+                resolved=(self.ref_date + datetime.timedelta(days=30)).isoformat(),
+                source="explicit",
+            )
+        in_span_m = re.search(r"\bin\s+(\d+)\s+(day|days|week|weeks|month|months)\b", text, re.IGNORECASE)
+        if in_span_m:
+            count = int(in_span_m.group(1))
+            unit = in_span_m.group(2).lower()
+            mult = 1 if unit.startswith("day") else (7 if unit.startswith("week") else 30)
+            return TimeModel(
+                expression=in_span_m.group(0).lower(),
+                resolved=(self.ref_date + datetime.timedelta(days=count * mult)).isoformat(),
+                source="explicit",
+            )
+
+        # 5. Weekdays ("Monday" .. "Sunday", including "this Saturday", "Saturday morning", etc.)
+        weekdays = [
+            ("Monday", 0), ("Tuesday", 1), ("Wednesday", 2), ("Thursday", 3),
+            ("Friday", 4), ("Saturday", 5), ("Sunday", 6),
+        ]
+        for label, w_idx in weekdays:
+            wd_m = re.search(
+                rf"\b(this\s+|next\s+)?{label.lower()}(?:\s+(morning|afternoon|evening|night))?\b",
+                text,
+                re.IGNORECASE,
+            )
+            if wd_m:
+                delta = (w_idx - self.ref_date.weekday()) % 7
+                if wd_m.group(1) and "next" in wd_m.group(1).lower() and delta == 0:
+                    delta = 7
+                target_iso = (self.ref_date + datetime.timedelta(days=delta)).isoformat()
+                period = wd_m.group(2).lower() if wd_m.group(2) else None
+                if period == "night":
+                    period = "evening"
+                expr_prefix = wd_m.group(1).strip().lower() + " " if wd_m.group(1) else ""
+                expr_suffix = f" {wd_m.group(2).lower()}" if wd_m.group(2) else ""
                 return TimeModel(
-                    expression=expr,
-                    resolved=resolved,
-                    source="explicit"
+                    expression=f"{expr_prefix}{label}{expr_suffix}",
+                    resolved=f"{target_iso} {period}" if period else target_iso,
+                    source="explicit",
                 )
 
         return TimeModel(expression=None, resolved=None, source="unknown")

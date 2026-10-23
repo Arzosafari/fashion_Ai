@@ -4,3 +4,5 @@ websockets>=12.0
 vosk>=0.3.45
 python-multipart>=0.0.9
 gTTS>=2.5.0
+requests>=2.31.0
+httpx>=0.27.0
