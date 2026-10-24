@@ -966,7 +966,17 @@ document.addEventListener('DOMContentLoaded', () => {
       const diag = trendContext
         ? `status=${trendContext.status || 'unknown'} available=${trendContext.available} trends=${(trendContext.trends||[]).length} snapshot=${trendContext.snapshot_time_utc || 'none'}${trendContext.message ? ' \u2014 ' + trendContext.message : ''}`
         : 'no payload (network error)';
-      trendList.innerHTML = `<p class="trend-empty">Trend context is not available right now. Voice, text and weather keep working normally.</p><p class="trend-empty" style="font-size:11px;opacity:0.7;margin-top:6px;">Diagnostic: ${escapeHtml(diag)}</p>`;
+      trendList.innerHTML = `<p class="trend-empty">Trend context is not available right now. Voice, text and weather keep working normally.</p><p class="trend-empty" style="font-size:11px;opacity:0.7;margin-top:6px;">Diagnostic: ${escapeHtml(diag)} — fetching DB info…</p>`;
+      // Fetch DB debug to pinpoint empty-DB vs cache issue (visible in UI, also in console)
+      fetch('/api/debug/trends', { cache: 'no-store' }).then(r=>r.json()).then(dbg=>{
+        console.log('[Trend] debug DB:', dbg);
+        const dbgInfo = `DB=${dbg.db_url || 'unknown'} snapshots=${dbg.status?.latest_snapshot || 'none'} trends=${dbg.status?.trends ?? '?'} enabled_src=${dbg.status?.enabled_sources ?? '?'}`;
+        const el = document.getElementById('trendList');
+        if (el) {
+          const extra = el.querySelector('.trend-empty:last-child');
+          if (extra) extra.textContent = `Diagnostic: ${diag} | ${dbgInfo}`;
+        }
+      }).catch(e=>console.warn('[Trend] debug fetch failed', e));
       if (trendUnavailableNote) {
         if (trendContext && trendContext.message) {
           trendUnavailableNote.style.display = 'block';

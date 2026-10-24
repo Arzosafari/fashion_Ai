@@ -296,6 +296,29 @@ def create_app(
     app.state.context_integrator = context_integrator
     app.state.conversation_manager = conversation_manager
 
+    @app.get("/api/debug/trends")
+    async def debug_trends():
+        from trend_system.service import get_trend_context as _gctx, get_module_status as _gstatus
+        from trend_system.database.session import get_database_url as _gdb
+        ctx = await _gctx(limit=5)
+        status = await _gstatus()
+        return {"db_url": _gdb(), "ctx": ctx, "status": status}
+
+    @app.middleware("http")
+    async def log_trends(request, call_next):
+        response = await call_next(request)
+        if request.url.path.startswith("/api/v1/trends/context"):
+            try:
+                from trend_system.service import get_trend_context as _gctx2
+                from trend_system.database.session import get_database_url as _gdb2
+                import logging as _log
+                ctx = await _gctx2(limit=5)
+                _log.getLogger("fashion_stt_server").info("TREND_CONTEXT_LOG db=%s payload_available=%s status=%s trends=%s client=%s", _gdb2(), ctx.get("available"), ctx.get("status"), len(ctx.get("trends",[])), request.client.host if request.client else "unknown")
+            except Exception as e:
+                import logging as _log
+                _log.getLogger("fashion_stt_server").warning("TREND_CONTEXT_LOG failed: %s", e)
+        return response
+
     @app.get("/api/health")
     async def health_check():
         return {
