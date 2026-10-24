@@ -3,14 +3,14 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
-from trend_system.database.session import get_async_sessionmaker
+from trend_system.api.deps import ensure_trend_db, get_session
 from trend_system.database.models import Source, SourceHealth, CollectionRun
 
-router = APIRouter(prefix="/sources", tags=["sources"])
-
-async def get_session():
-    async with get_async_sessionmaker()() as session:
-        yield session
+router = APIRouter(
+    prefix="/sources",
+    tags=["sources"],
+    dependencies=[Depends(ensure_trend_db)],
+)
 
 @router.get("")
 async def list_sources(session: AsyncSession = Depends(get_session)):

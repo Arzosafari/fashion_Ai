@@ -14,8 +14,10 @@ CONFIG_DIR = BASE_DIR / "config"
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=str(BASE_DIR / ".env"), env_file_encoding="utf-8", extra="ignore")
 
-    DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/trends"
-    SYNC_DATABASE_URL: str = "postgresql://postgres:postgres@localhost:5432/trends"
+    # SQLite is the preserved default; set DATABASE_URL to override (PostgreSQL
+    # remains possible for deployments but is never required).
+    DATABASE_URL: str = f"sqlite+aiosqlite:///{BASE_DIR / 'trends.db'}"
+    SYNC_DATABASE_URL: str = f"sqlite:///{BASE_DIR / 'trends.db'}"
     API_HOST: str = "0.0.0.0"
     API_PORT: int = 8000
     LOG_LEVEL: str = "INFO"
@@ -30,6 +32,13 @@ class Settings(BaseSettings):
     LLM_MAX_CALLS_PER_DAY: int | None = None
     USER_AGENT: str = "FashionTrendBot/1.0 (+https://example.com/bot)"
     DEFAULT_TIMEOUT: int = 15
+    # Collection / scheduling (optional; disabled by default so the module never
+    # starts a background job inside the API process unless explicitly asked).
+    TREND_SCHEDULER_ENABLED: bool = False
+    TREND_SNAPSHOT_INTERVAL_HOURS: int = 6
+    TREND_COLLECTION_MAX_URLS: int = 5
+    TREND_RATE_LIMIT_DELAY: float = 2.0
+    EXCLUDE_SYNTHETIC: bool = True
 
 
 @lru_cache(maxsize=1)
@@ -78,6 +87,18 @@ def get_scoring_config() -> dict:
     if env_sim is not None:
         try:
             cfg["similarity_threshold"] = float(env_sim)
+        except ValueError:
+            pass
+    env_window = os.getenv("WINDOW_DAYS")
+    if env_window is None:
+        try:
+            v = get_settings().WINDOW_DAYS
+            env_window = str(v) if v is not None else None
+        except Exception:
+            env_window = None
+    if env_window is not None:
+        try:
+            cfg["window_days"] = int(env_window)
         except ValueError:
             pass
     return cfg

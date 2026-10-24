@@ -4,17 +4,22 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc
 from datetime import datetime, timezone
 
-from trend_system.database.session import get_async_sessionmaker
+from trend_system.api.deps import ensure_trend_db, get_session
+from trend_system.api.schemas import (
+    TrendContextResponse,
+    TrendsForRecommendationResponse,
+    TrendsSnapshotResponse,
+)
 from trend_system.database.models import Trend, TrendSnapshot, TrendHistory, TrendEvidence
 from trend_system.utils.calendar import to_jalali_dict
 
-router = APIRouter(prefix="/trends", tags=["trends"])
+router = APIRouter(
+    prefix="/trends",
+    tags=["trends"],
+    dependencies=[Depends(ensure_trend_db)],
+)
 
-async def get_session():
-    async with get_async_sessionmaker()() as session:
-        yield session
-
-@router.get("/current")
+@router.get("/current", response_model=TrendsSnapshotResponse)
 async def get_current(
     limit: int = Query(20, ge=1, le=100),
     category: str | None = None,
@@ -61,7 +66,7 @@ async def refresh(limit: int = 10, session: AsyncSession = Depends(get_session))
     snap = await materialize_snapshot(session, datetime.now(timezone.utc), exclude_synthetic=True)
     return {"refreshed_at": datetime.now(timezone.utc).isoformat(), "total": len(snap), "trends": snap[:limit]}
 
-@router.get("/for-recommendation")
+@router.get("/for-recommendation", response_model=TrendsForRecommendationResponse)
 async def for_recommendation(
     season: str | None = None,
     limit: int = Query(10, ge=1, le=50),
@@ -209,6 +214,18 @@ async def get_history(trend_id: str, from_date: str | None = None, to_date: str 
             "supporting_sources": r.supporting_sources,
         } for r in filtered
     ]}
+
+@router.get("/context", response_model=TrendContextResponse)
+async def trend_context(limit: int = Query(5, ge=1, le=20)):
+    """Compact, documented trend context for the request/recommendation layer.
+
+    Always returns HTTP 200: ``available=false`` with a machine-readable
+    ``status`` when the database is empty or the module is unavailable.
+    """
+    from trend_system.service import get_trend_context
+
+    return await get_trend_context(limit=limit)
+
 
 @router.get("/{trend_id}")
 async def get_by_id(trend_id: str, session: AsyncSession = Depends(get_session)):

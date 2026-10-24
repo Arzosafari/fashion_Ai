@@ -9,6 +9,7 @@ import re
 import json
 import datetime
 import logging
+from contextlib import asynccontextmanager
 from typing import Optional, List, Dict, Any
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File, Form, HTTPException, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
@@ -27,6 +28,7 @@ from .models import (
     RecommendationContext,
     WeatherResolveRequest,
     WeatherResolveResponse,
+    TrendContext,
 )
 from .weather_context import (
     ContextIntegrator,
@@ -34,6 +36,27 @@ from .weather_context import (
 )
 from .tts import generate_tts_audio
 from .lexicon import get_all_fashion_terms, correct_fashion_text
+
+# ---------------------------------------------------------------------------
+# Global Fashion Trend Module (integrated, optional at runtime)
+# ---------------------------------------------------------------------------
+# Imported defensively: the voice/text + weather modules must keep working even
+# if the trend dependencies or database are unavailable.
+try:
+    from trend_system.api.router import api_router as trend_api_router
+    from trend_system.bootstrap import bootstrap_trend_module
+    from trend_system.service import get_trend_context as get_global_trend_context
+    TREND_MODULE_AVAILABLE = True
+    TREND_IMPORT_ERROR: Optional[str] = None
+except Exception as _trend_import_error:  # pragma: no cover - depends on install
+    trend_api_router = None  # type: ignore[assignment]
+    bootstrap_trend_module = None  # type: ignore[assignment]
+    get_global_trend_context = None  # type: ignore[assignment]
+    TREND_MODULE_AVAILABLE = False
+    TREND_IMPORT_ERROR = str(_trend_import_error)
+    logging.getLogger("fashion_stt_server").warning(
+        "Global Fashion Trend Module not available: %s", _trend_import_error
+    )
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -204,11 +227,34 @@ FASHION_CATALOG = [
 def create_app(
     weather_service: Optional[WeatherContextService] = None,
     reference_date: Optional[datetime.date] = None,
+    enable_trends: bool = True,
 ) -> FastAPI:
+    trends_enabled = bool(enable_trends and TREND_MODULE_AVAILABLE)
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        """Initialise the trend module (idempotent, non-destructive).
+
+        The existing voice/text and weather modules do not depend on this; a
+        failure is logged and the application keeps serving.
+        """
+        app.state.trend_bootstrap = None
+        if trends_enabled:
+            try:
+                app.state.trend_bootstrap = await bootstrap_trend_module()
+            except Exception as exc:  # pragma: no cover - depends on deployment
+                logger.exception("Trend module bootstrap failed: %s", exc)
+                app.state.trend_bootstrap = {"status": "failed", "error": str(exc)}
+        yield
+
     app = FastAPI(
-        title="Fashion AI — Request Understanding & Weather Context Module",
-        description="Unified Voice & Text Input, Accurate English STT, Feature Extraction, and Independent Weather Context Integration",
-        version="2.1.0"
+        title="Fashion AI — Request Understanding, Weather & Global Trend Context",
+        description=(
+            "Unified Voice & Text Input, Accurate English STT, Feature Extraction, "
+            "Independent Weather Context Integration and Global Fashion Trend Context"
+        ),
+        version="2.2.0",
+        lifespan=lifespan,
     )
 
     # CORS configuration
@@ -228,6 +274,10 @@ def create_app(
             response.headers["Cache-Control"] = "no-cache, must-revalidate"
         return response
 
+    # Global Fashion Trend API (/api/v1/trends/*, /api/v1/sources/*)
+    if trends_enabled:
+        app.include_router(trend_api_router, prefix="/api/v1")
+
     # Initialize core services cleanly decoupled from one another
     transcriber = RealtimeTranscriber()
     extractor = FashionEntityExtractor(reference_date=reference_date)
@@ -245,8 +295,8 @@ def create_app(
     async def health_check():
         return {
             "status": "healthy",
-            "module": "User Request Understanding & Weather Context Module",
-            "version": "2.1.0",
+            "module": "Fashion AI — Request Understanding, Weather & Global Trend Context Module",
+            "version": "2.2.0",
             "language": "en",
             "model": "vosk-model-small-en-us-0.15",
             "weather_provider": "open-meteo",
@@ -258,9 +308,21 @@ def create_app(
                 "ambiguity_detection",
                 "structured_json_schema",
                 "text_to_speech",
-                "weather_context"
+                "weather_context",
+                "global_trend_context",
             ],
-            "lexicon_terms_count": len(get_all_fashion_terms())
+            "lexicon_terms_count": len(get_all_fashion_terms()),
+            "modules": {
+                "request_understanding": "active",
+                "weather": "active",
+                "global_trends": {
+                    "integrated": trends_enabled,
+                    "api_prefix": "/api/v1/trends",
+                    "collection_scope": "global",
+                    "sources": ["vogue", "harpers_bazaar", "whowhatwear", "wgsn"],
+                    "import_error": TREND_IMPORT_ERROR,
+                },
+            },
         }
 
     @app.get("/api/weather", response_model=WeatherContext)
@@ -359,6 +421,18 @@ def create_app(
             )
             weather_context = recommendation_context.weather_context
             session_weather_snapshots[session_id] = weather_context
+
+            # Attach global trend context independently of weather availability.
+            # Never blocks or fails the request-understanding pipeline.
+            if trends_enabled:
+                try:
+                    raw_trend_context = await get_global_trend_context(limit=5)
+                    trend_context = TrendContext.model_validate(raw_trend_context)
+                    recommendation_context = recommendation_context.model_copy(
+                        update={"trend_context": trend_context}
+                    )
+                except Exception as exc:
+                    logger.warning("Global trend context unavailable: %s", exc)
 
             # Generate TTS URL for spoken audio feedback
             import urllib.parse
