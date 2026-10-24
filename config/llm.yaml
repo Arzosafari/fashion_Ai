@@ -1,0 +1,25 @@
+# LLM — provider-agnostic, cached, optional.
+# System must work with enabled:false or no API key (DummyProvider).
+llm:
+  enabled: false
+  provider: "dummy"  # dummy | openai | anthropic | local
+  model: "dummy"
+  api_base: null
+  api_key_env: "LLM_API_KEY"
+  max_calls_per_day: 100
+  timeout: 15
+  cache_ttl_days: 30
+  prompt_version: "v1"
+  # No hard-coded model name in code — all from here or env override.
+
+# Prompt template (kept here for versioning)
+prompt_template: |
+  You are a fashion attribute extractor for Iranian and global fashion.
+  Extract fashion attributes from the given article title and text.
+  Return ONLY valid JSON matching the schema.
+  Taxonomy hints: {taxonomy_hint}
+  Title: {title}
+  Text: {text}
+  Language: {language}
+  Return JSON:
+  {"garments":[],"colors":[],"patterns":[],"styles":[],"materials":[],"silhouettes":[],"outfit_combinations":[],"trend_candidates":[]}

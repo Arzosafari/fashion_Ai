@@ -1,0 +1,89 @@
+# Scoring — GLOBAL Trend Module v2_global
+# All engineering parameters versioned, tunable via env/config
+scoring:
+  version: "v2_global"
+  scoring_mode: "gated_geom"  # gated_geom | multiplicative | additive | geometric
+  trend_scope: "global"
+
+  window_days: 30
+  min_evidence_count: 3
+  min_supporting_sources: 2
+  half_life_days: 30
+  decay_type: "exponential"
+  epsilon: 1.0e-6
+
+  # Configurable via env TREND_SIMILARITY_THRESHOLD (default 0.58) and HALF_LIFE_DAYS (default 30)
+  similarity_threshold: 0.58
+  half_life_env: "HALF_LIFE_DAYS"
+
+  # Bundle (G,C,P,R,Gw,S) geometric mean weights — for global scoring
+  bundle_weights:
+    G: 1.0   # source_quality
+    C: 0.8   # cross_source
+    P: 1.0   # persistence/recurrence
+    R: 1.2   # recency/freshness
+    Gw: 0.7  # growth
+    S: 0.6   # seasonal relevance
+
+  gate:
+    I_weight: 0.0   # disabled for global scope; I forced to 1.0
+
+  recency:
+    formula: "exp(-ln2 * age / half_life)"
+    half_life_days: 30  # overridden by env HALF_LIFE_DAYS if set
+
+  growth:
+    window_days: 7
+    clamp: [0.8, 1.3]
+
+  cross_source:
+    formula: "1 + log(1+distinct)/log(1+max)"
+    # distinct = supporting_sources, max = total enabled sources
+    # cross_source = 1 for single source, increases with independent sources
+
+  iran_relevance:
+    enabled: false
+    w_iran_source: 0.0
+    w_lang: 0.0
+    w_norms: 0.0
+    w_market: 0.0
+    market_enabled: false
+    note: "Disabled for global scope; compute_iran_relevance returns 1.0 for all trends"
+
+  seasonal:
+    boost_range: [0.5, 1.2]
+    calendar: "gregorian"  # global uses gregorian; persian kept for backward compat but not used
+    fashion_weeks: ["NY", "London", "Milan", "Paris", "Copenhagen"]
+    seasons: ["Spring/Summer", "Fall/Winter", "Resort", "Pre-Fall"]
+    season_normalization:
+      SS26: "Spring/Summer 2026"
+      AW26: "Fall/Winter 2026"
+      "SS 2026": "Spring/Summer 2026"
+      "FW26": "Fall/Winter 2026"
+
+  lifecycle:
+    emerging: {min_evidence: 3, max_age_days: 14, growth_gt: 0.25, sources_ge: 2}
+    rising: {growth_gt: 0.10, persistence_gt: 0.5}
+    established: {score_gt: 0.6, persistence_gt: 0.7, abs_growth_lt: 0.10, evidence_gt: 10}
+    declining: {growth_lt: -0.10, falling_snapshots_ge: 2}
+    inactive: {last_seen_gt_days: 60, score_lt: 0.15}
+
+  # Trend score formula for global: trend_score = source_quality x freshness x cross_source x semantic_consistency x recurrence
+  # Implemented as gated geometric mean where gate I=1
+
+  additive_weights:
+    G: 0.25
+    C: 0.10
+    P: 0.10
+    R: 0.20
+    I: 0.00
+    Gw: 0.05
+    S: 0.10
+
+  search_space:
+    half_life_days: [7, 14, 30, 60, 90]
+    window_days: [14, 30, 60]
+    min_evidence_count: [2, 3, 5]
+    min_supporting_sources: [1, 2, 3]
+    similarity_threshold: [0.50, 0.58, 0.65, 0.75]
+    decay_type: ["exponential", "power_law"]

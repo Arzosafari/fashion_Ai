@@ -3,26 +3,54 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "fashion-stt"
-version = "2.1.0"
-description = "Fashion AI Voice & Text Request Understanding and Weather Context Integration"
+name = "fashion-ai"
+version = "2.2.0"
+description = "Fashion AI: voice/text request understanding, weather context and global fashion trend intelligence"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 dependencies = [
-    "vosk>=0.3.45",
+    # web / api
     "fastapi>=0.110.0",
-    "uvicorn>=0.28.0",
-    "websockets>=12.0",
+    "uvicorn[standard]>=0.28.0",
     "python-multipart>=0.0.9",
+    "pydantic>=2.6",
+    "pydantic-settings>=2.1",
+    "websockets>=12.0",
+    # voice / text
+    "vosk>=0.3.45",
     "gTTS>=2.5.0",
     "requests>=2.31.0",
-    "httpx>=0.27.0"
+    # http / collection
+    "httpx>=0.27.0",
+    "tenacity>=8.2",
+    "trafilatura>=1.6",
+    "beautifulsoup4>=4.12",
+    "lxml>=5.1",
+    "python-dateutil>=2.8",
+    "dateparser>=1.2",
+    "langdetect>=1.0",
+    "protego>=0.2",
+    # persistence
+    "sqlalchemy[asyncio]>=2.0",
+    "aiosqlite>=0.19",
+    # config / calendar / opt-in scheduler
+    "pyyaml>=6.0",
+    "jdatetime>=4.1",
+    "apscheduler>=3.10",
 ]
+
+[project.optional-dependencies]
+embeddings = ["sentence-transformers>=2.5", "torch>=2.0"]
+dev = ["pytest>=8", "pytest-asyncio>=0.23", "httpx>=0.27", "pytest-httpx>=0.21"]
+all = ["fashion-ai[embeddings,dev]"]
 
 [project.scripts]
 fashion-stt = "fashion_stt.cli:main"
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
+asyncio_mode = "auto"
 testpaths = ["tests"]
 
+[tool.setuptools.packages.find]
+include = ["fashion_stt*", "trend_system*", "agents*"]

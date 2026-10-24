@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Global Fashion Trend Intelligence — Architecture</title>
+<style>
+body{font-family:Inter,system-ui,Arial,sans-serif;max-width:900px;margin:32px auto;padding:0 20px;line-height:1.6;color:#111}
+h1{font-size:28px;margin-bottom:4px}
+h2{font-size:18px;margin-top:28px;border-bottom:1px solid #ddd;padding-bottom:6px}
+code{background:#f5f5f5;padding:2px 6px;border-radius:4px;font-size:13px}
+.flow{font-family:monospace;font-size:12px;background:#0f172a;color:#e2e8f0;padding:18px;border-radius:8px;overflow:auto;white-space:pre;line-height:1.5}
+.badge{display:inline-block;background:#0ea5e9;color:white;font-size:11px;padding:2px 8px;border-radius:999px;margin-left:8px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.card{border:1px solid #e5e7eb;border-radius:8px;padding:12px}
+.small{font-size:12px;color:#64748b}
+</style>
+</head>
+<body>
+<h1>Global Fashion Trend Intelligence <span class="badge">v2_global 2026-09-29</span></h1>
+<p class="small">Trend Module GLOBAL-ONLY — User location Iran independent — 4 sources: Vogue, Harper's Bazaar, Who What Wear, WGSN (restricted)</p>
+
+<div class="flow">Global Sources ──→ Evidence ──→ Extraction ──→ Normalization ──→ Sentence Transformers ──→ Clustering ──→ Cross-Source ──→ Freshness/Scoring ──→ Trend DB ──→ Recommendation Engine
+     │               │             │                │                     │                    │                │                  │             │
+     │               │             │                │                     │                    │                │                  │             └─► API (/api/v1/trends/current, /for-recommendation) — snapshot only
+     │               │             │                │                     │                    │                │                  └─► Snapshot (hourly materialize_snapshot)
+     │               │             │                │                     │                    │                └─► Score = source_quality × freshness × cross_source × semantic_consistency × recurrence (gated_geom, I=1)
+     │               │             │                │                     │                    └─► Freshness R=exp(-ln2·age/HALF_LIFE)  HALF_LIFE=30d
+     │               │             │                │                     └─► Cosine ≥0.58 TREND_SIMILARITY_THRESHOLD + category/garment/color/season guard
+     │               │             │                └─► Taxonomy (global_relevance) + season_extractor (SS26→Spring/Summer 2026, NY/London/Milan/Paris/Copenhagen)
+     │               │             └─► title/date/source/url/concepts/garments/colors/.../designers/season/embeddings
+     │               └─► article is evidence (RawDocument → Observation → Signal → Evidence), short excerpts only
+     └─► Vogue (0.95) ─┐
+         Harper's Bazaar (0.90, sitemap_index.xml) ─┤─→ TREND_SOURCES central (config/sources.yaml) 4 enabled, robots respected, WGSN skip on 403
+         Who What Wear (0.75, sitemap.xml) ─┤
+         WGSN (0.95, restricted, forecasting) ─┘
+                                                        │
+Historical Iranian (Digikala/BaniMag/Modeworld) — disabled, scope=iranian, isolated, not deleted
+User Location Iran — independent</div>
+
+<h2>Configurable Thresholds</h2>
+<div class="grid">
+<div class="card"><strong>TREND_SIMILARITY_THRESHOLD</strong> = 0.58<br><code>HALF_LIFE_DAYS=30</code> → R=exp(-ln2·age/30)<br>Env overrides via <code>TREND_SIMILARITY_THRESHOLD</code> / <code>HALF_LIFE_DAYS</code></div>
+<div class="card"><strong>TREND_SOURCES</strong> central array in <code>config/sources.yaml</code><br>Authority: Vogue 0.95, Harper 0.90, WWW 0.75, WGSN 0.95<br>WGSN robots Disallow:* → graceful skip</div>
+</div>
+
+<h2>Evidence Chain</h2>
+<p><code>RawDocument</code> → <code>FashionObservation</code> → <code>TrendSignal</code> → <code>TrendEvidence</code> → <code>Trend</code> (current_score) → <code>TrendSnapshot</code> → <code>Recommendation Engine</code></p>
+<p class="small">Example: “Scarlet tailoring and oversized floral brooches dominate Paris Fashion Week SS26” → <code>red_tailoring</code> (styling), <code>oversized_floral_brooches</code> (accessory), season <code>Spring/Summer 2026</code>, week <code>Paris</code></p>
+
+<h2>Data Migration</h2>
+<p>Migration <code>scripts/migrate_global.py</code>: added <code>trend_scope/source_region</code> columns, marked 15 historical trends <code>iranian</code>, disabled Iranian sources. New trends <code>global</code>. History preserved in <code>trend_history</code>.</p>
+
+<h2>Tests (38 passed)</h2>
+<p>Existing 24 + 14 global: no Iranian enabled, sitemap verification, extraction, season SS26, fashion weeks, clustering (red tailoring ≠ red handbag), dedup, similarity 0.58, freshness 30d, cross-source, scoring I=1, WGSN skip, isolation.</p>
+
+<h2>How to Extend</h2>
+<p>Add source to <code>sources.yaml</code> + adapter in <code>global_sources/</code> + register in <code>registry.ADAPTER_MAP</code>. Tune thresholds via env. Add fashion week to <code>scoring.yaml</code>.</p>
+</body>
+</html>

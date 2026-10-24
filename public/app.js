@@ -65,6 +65,20 @@ document.addEventListener('DOMContentLoaded', () => {
   const valWeatherCondition = document.getElementById('valWeatherCondition');
   const valWeatherWind = document.getElementById('valWeatherWind');
   const weatherUnavailableNote = document.getElementById('weatherUnavailableNote');
+  const trendStatusPill = document.getElementById('trendStatusPill');
+  const trendSnapshotMeta = document.getElementById('trendSnapshotMeta');
+  const trendSeasonMeta = document.getElementById('trendSeasonMeta');
+  const trendScopeMeta = document.getElementById('trendScopeMeta');
+  const trendList = document.getElementById('trendList');
+  const trendUnavailableNote = document.getElementById('trendUnavailableNote');
+  const trendCheckedMeta = document.getElementById('trendCheckedMeta');
+  const trendRefreshBtn = document.getElementById('trendRefreshBtn');
+  const trendCollectingBanner = document.getElementById('trendCollectingBanner');
+  const trendCollectingTitle = document.getElementById('trendCollectingTitle');
+  const trendCollectingStatus = document.getElementById('trendCollectingStatus');
+  const trendCollectingMsg = document.getElementById('trendCollectingMsg');
+  const trendCollectingBar = document.getElementById('trendCollectingBar');
+  const trendCollectNowBtn = document.getElementById('trendCollectNowBtn');
   const jsonOutput = document.getElementById('jsonOutput');
   const copyJsonBtn = document.getElementById('copyJsonBtn');
   const ttsAudioPlayer = document.getElementById('ttsAudioPlayer');
@@ -75,7 +89,8 @@ document.addEventListener('DOMContentLoaded', () => {
   let isProcessing = false;
   let ttsEnabled = true;
   let rawVoiceTranscript = '';
-  let canvasCtx = visualizerCanvas.getContext('2d');
+  let canvasCtx = null;
+  try { canvasCtx = visualizerCanvas.getContext('2d'); } catch (e) { canvasCtx = null; }
   let currentAudioLevel = 0;
   let sttInstance = null;
   let activeJsonTab = 'request';
@@ -84,13 +99,21 @@ document.addEventListener('DOMContentLoaded', () => {
     weather: null,
     combined: null
   };
+  let latestTrendContext = null;
+  let trendFetchedAt = 0;
+  let trendLoading = false;
+  let collectionPollTimer = null;
+  let collectionKnownDone = false;
 
   // Initialize Canvas
   function resizeCanvas() {
-    visualizerCanvas.width = visualizerCanvas.parentElement.clientWidth || 460;
-    visualizerCanvas.height = 48;
+    try {
+      if (!visualizerCanvas || !visualizerCanvas.parentElement) return;
+      visualizerCanvas.width = visualizerCanvas.parentElement.clientWidth || 460;
+      visualizerCanvas.height = 48;
+    } catch (e) {}
   }
-  resizeCanvas();
+  try { resizeCanvas(); } catch (e) {}
   window.addEventListener('resize', resizeCanvas);
 
   // New Tab Handler
@@ -214,9 +237,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Waveform Visualizer Loop
   function drawVisualizer() {
-    const w = visualizerCanvas.width;
-    const h = visualizerCanvas.height;
-    canvasCtx.clearRect(0, 0, w, h);
+    try {
+      if (!canvasCtx || !visualizerCanvas) { requestAnimationFrame(drawVisualizer); return; }
+      const w = visualizerCanvas.width;
+      const h = visualizerCanvas.height;
+      if (!w || !h) { requestAnimationFrame(drawVisualizer); return; }
+      canvasCtx.clearRect(0, 0, w, h);
 
     const numBars = 36;
     const barWidth = (w / numBars) - 2;
@@ -244,10 +270,14 @@ document.addEventListener('DOMContentLoaded', () => {
       canvasCtx.fill();
     }
 
-    currentAudioLevel *= 0.88;
-    requestAnimationFrame(drawVisualizer);
+      currentAudioLevel *= 0.88;
+      requestAnimationFrame(drawVisualizer);
+    } catch (vizErr) {
+      console.warn('Visualizer error:', vizErr);
+      requestAnimationFrame(drawVisualizer);
+    }
   }
-  drawVisualizer();
+  try { drawVisualizer(); } catch (e) { console.warn('Visualizer init failed:', e); }
 
   // Mic Button Toggle
   micBtn.addEventListener('click', () => {
@@ -502,11 +532,50 @@ document.addEventListener('DOMContentLoaded', () => {
         };
       }
       renderWeatherContext(relayed.weather);
+      if (latestTrendContext) renderTrendContext(latestTrendContext);
       renderActiveJsonTab();
     } catch (err) {
       console.warn('Weather setting refresh failed:', err);
     }
   }
+
+  // Load the latest global trend snapshot immediately (independent of user input).
+  loadTrendContext(5);
+  // Kick off collection-status poll in parallel so empty-DB users see 'Collecting…' right away
+  pollCollectionStatus();
+
+  if (trendRefreshBtn) {
+    trendRefreshBtn.addEventListener('click', (event) => {
+      event.preventDefault();
+      loadTrendContext(5);
+    });
+  }
+
+  if (trendCollectNowBtn) {
+    trendCollectNowBtn.addEventListener('click', async (event) => {
+      event.preventDefault();
+      trendCollectNowBtn.textContent = 'Starting…';
+      trendCollectNowBtn.disabled = true;
+      try {
+        const r = await fetch('/api/v1/trends/collection/start?limit=5', { method: 'POST' });
+        const j = await r.json();
+        console.log('[Trend] manual collection start:', j);
+      } catch (e) { console.warn('[Trend] manual collect failed', e); }
+      collectionKnownDone = false;
+      pollCollectionStatus();
+      setTimeout(()=>loadTrendContext(5), 800);
+      setTimeout(()=>{ trendCollectNowBtn.textContent = '↻ Re-collect Now'; trendCollectNowBtn.disabled = false; }, 3000);
+    });
+  }
+
+  // Re-check the snapshot when the user returns to the tab (data may have changed,
+  // and the first load may have happened while the server was restarting).
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && Date.now() - trendFetchedAt > 60000) {
+      loadTrendContext(5);
+      pollCollectionStatus();
+    }
+  });
 
   if (locationSettingInput) {
     let locDebounce = null;
@@ -581,6 +650,12 @@ document.addEventListener('DOMContentLoaded', () => {
       latestPayloads.combined = resolvedWeather.combined || data.recommendation_context || null;
 
       renderWeatherContext(latestPayloads.weather);
+      const trendContext = (data.recommendation_context && data.recommendation_context.trend_context) || null;
+      if (trendContext) {
+        renderTrendContext(trendContext);
+      } else {
+        loadTrendContext();
+      }
       renderActiveJsonTab();
 
     } catch (err) {
@@ -893,6 +968,246 @@ document.addEventListener('DOMContentLoaded', () => {
     } catch (err) {
       console.error('File transcription error:', err);
       addChatMessage('system', `Error transcribing ${file.name}: ${err.message}`);
+    }
+  }
+
+  // ---------------------------------------------------------------------
+  // Global Fashion Trend Context (independent module, never blocks the app)
+  // ---------------------------------------------------------------------
+  function renderTrendContext(trendContext) {
+    if (!trendStatusPill || !trendList) {
+      console.warn('Trend render: missing DOM elements', { hasPill: !!trendStatusPill, hasList: !!trendList });
+      return;
+    }
+    latestTrendContext = trendContext || null;
+    console.log('[Trend] render input:', JSON.stringify(trendContext, null, 2));
+    // If a background collection is running (empty DB on first startup), surface it immediately
+    const coll = trendContext && trendContext.meta && trendContext.meta.collection ? trendContext.meta.collection : null;
+    if (coll && (coll.state === 'collecting' || coll.state === 'seeding_fallback')) {
+      showCollectingBanner(coll);
+      if (!collectionPollTimer) pollCollectionStatus();
+    } else if (coll && coll.state === 'failed') {
+      showCollectingBanner(coll);
+    } else {
+      hideCollectingBanner();
+    }
+    const available = !!(trendContext && trendContext.available && Array.isArray(trendContext.trends) && trendContext.trends.length);
+    if (!available) {
+      const status = trendContext ? trendContext.status : null;
+      trendStatusPill.className = 'weather-status-pill unavailable';
+      // If we are collecting, keep the pill as 'Collecting…' instead of 'No Snapshot Yet'
+      if (coll && (coll.state === 'collecting' || coll.state === 'seeding_fallback')) {
+        trendStatusPill.textContent = 'Collecting…';
+      } else {
+        trendStatusPill.textContent = status === 'no_snapshot'
+          ? 'No Snapshot Yet'
+          : (status && status !== 'unavailable' ? `Unavailable (${status})` : 'Unavailable');
+      }
+      if (trendSnapshotMeta) trendSnapshotMeta.textContent = 'Snapshot: \u2014';
+      if (trendSeasonMeta) trendSeasonMeta.textContent = 'Season: \u2014';
+      if (trendScopeMeta) trendScopeMeta.textContent = 'Scope: global';
+      const diag = trendContext
+        ? `status=${trendContext.status || 'unknown'} available=${trendContext.available} trends=${(trendContext.trends||[]).length} snapshot=${trendContext.snapshot_time_utc || 'none'}${trendContext.message ? ' \u2014 ' + trendContext.message : ''}`
+        : 'no payload (network error)';
+      // When collecting, the banner already explains what's happening — keep list short
+      if (coll && (coll.state === 'collecting' || coll.state === 'seeding_fallback')) {
+        trendList.innerHTML = `<p class="trend-empty">Trend context will appear here once collection finishes. Your voice/text still works — fresh trends will be added to the next request automatically.</p><p class="trend-empty" style="font-size:11px;opacity:0.7;margin-top:6px;">Diagnostic: ${escapeHtml(diag)} — ${escapeHtml(coll.message || '')}</p>`;
+      } else {
+        trendList.innerHTML = `<p class="trend-empty">Trend context is not available right now. Voice, text and weather keep working normally.</p><p class="trend-empty" style="font-size:11px;opacity:0.7;margin-top:6px;">Diagnostic: ${escapeHtml(diag)} — fetching DB info…</p>`;
+        fetch('/api/debug/trends', { cache: 'no-store' }).then(r=>r.json()).then(dbg=>{
+          console.log('[Trend] debug DB:', dbg);
+          const dbgInfo = `DB=${dbg.db_url || 'unknown'} snapshots=${dbg.status?.latest_snapshot || 'none'} trends=${dbg.status?.trends ?? '?'} enabled_src=${dbg.status?.enabled_sources ?? '?'}`;
+          const el = document.getElementById('trendList');
+          if (el) {
+            const extra = el.querySelector('.trend-empty:last-child');
+            if (extra) extra.textContent = `Diagnostic: ${diag} | ${dbgInfo}`;
+          }
+        }).catch(e=>console.warn('[Trend] debug fetch failed', e));
+      }
+      if (trendUnavailableNote) {
+        if (trendContext && trendContext.message) {
+          trendUnavailableNote.style.display = 'block';
+          trendUnavailableNote.textContent = trendContext.message + (coll ? ' — ' + (coll.message || '') : ' (If you just restarted the server, wait 2s and click \u21bb Refresh — the snapshot lives in trends.db and is never deleted.)');
+        } else {
+          trendUnavailableNote.style.display = 'none';
+        }
+      }
+      // Start polling for completion so user never needs to manually refresh
+      if (coll && (coll.state === 'collecting' || coll.state === 'seeding_fallback') && !collectionPollTimer) {
+        pollCollectionStatus();
+      }
+      return;
+    }
+
+    trendStatusPill.className = 'weather-status-pill available';
+    trendStatusPill.textContent = `${trendContext.trends.length} Trends Ready`;
+    const snapshotDate = (trendContext.snapshot_time_utc || '').slice(0, 10);
+    if (trendSnapshotMeta) trendSnapshotMeta.textContent = `Snapshot: ${snapshotDate || '\u2014'}`;
+    if (trendSeasonMeta) trendSeasonMeta.textContent = `Season: ${trendContext.season || '\u2014'}`;
+    if (trendScopeMeta) trendScopeMeta.textContent = `Scope: ${(trendContext.meta && trendContext.meta.scope) || 'global'}`;
+    if (trendUnavailableNote) trendUnavailableNote.style.display = 'none';
+
+    trendList.innerHTML = trendContext.trends.map((t, index) => {
+      const score = Math.max(0, Math.min(100, (t.trend_score || 0) * 100));
+      const lifecycle = t.lifecycle ? `<span class="trend-tag lifecycle">${escapeHtml(t.lifecycle)}</span>` : '';
+      const category = t.category ? `<span class="trend-tag">${escapeHtml(t.category)}</span>` : '';
+      const sources = t.supporting_sources ? `${t.supporting_sources} source${t.supporting_sources === 1 ? '' : 's'}` : '';
+      const evidence = t.evidence_count ? `${t.evidence_count} signals` : '';
+      const meta = [sources, evidence].filter(Boolean).join(' \u2022 ');
+      return `
+        <div class="trend-row">
+          <span class="trend-rank">#${index + 1}</span>
+          <div class="trend-main">
+            <div class="trend-title">
+              <strong>${escapeHtml(t.canonical_name || 'trend')}</strong>
+              ${category}${lifecycle}
+            </div>
+            <div class="trend-bar"><span style="width:${score.toFixed(1)}%"></span></div>
+            ${meta ? `<span class="trend-footnote">${escapeHtml(meta)}</span>` : ''}
+          </div>
+          <div class="trend-score"><strong>${score.toFixed(0)}</strong><span>score</span></div>
+        </div>`;
+    }).join('');
+  }
+
+  function markTrendChecked() {
+    trendFetchedAt = Date.now();
+    if (trendCheckedMeta) {
+      trendCheckedMeta.textContent = `Checked: ${new Date(trendFetchedAt).toLocaleTimeString()}`;
+    }
+  }
+
+  function showCollectingBanner(coll) {
+    if (!trendCollectingBanner) return;
+    trendCollectingBanner.style.display = 'block';
+    const state = coll.state || 'collecting';
+    const title = state === 'seeding_fallback' ? 'Seeding demo trends…' : state === 'failed' ? 'Collection paused' : 'Collecting fresh global trends…';
+    if (trendCollectingTitle) trendCollectingTitle.textContent = title;
+    if (trendCollectingStatus) trendCollectingStatus.textContent = state === 'collecting' ? 'Live fetch' : state;
+    const msg = coll.message || 'Contacting Vogue, Harper\'s Bazaar, Who What Wear (respecting robots.txt/TOS, WGSN auto-skipped)…';
+    if (trendCollectingMsg) trendCollectingMsg.textContent = msg;
+    const prog = coll.progress || {};
+    const total = prog.total || 4;
+    const checked = prog.checked || 0;
+    // Fallback: if we have sources counts
+    const src = coll.sources || {};
+    const checkedSrc = src.checked || checked;
+    const pct = total ? Math.min(95, Math.round((checkedSrc / Math.max(1,total)) * 90 + 5)) : (state==='collecting'? 35: 0);
+    if (trendCollectingBar) trendCollectingBar.style.width = pct + '%';
+  }
+  function hideCollectingBanner() {
+    if (trendCollectingBanner) trendCollectingBanner.style.display = 'none';
+  }
+  async function pollCollectionStatus() {
+    if (collectionPollTimer) return; // already polling
+    if (collectionKnownDone) return;
+    try {
+      const r = await fetch('/api/v1/trends/collection/status', { cache: 'no-store' });
+      if (!r.ok) return;
+      const coll = await r.json();
+      console.log('[Trend] collection status:', coll);
+      if (coll.state === 'collecting' || coll.state === 'seeding_fallback') {
+        showCollectingBanner(coll);
+        // Keep pillar as collecting
+        if (trendStatusPill && !hasTrends(latestTrendContext)) {
+          trendStatusPill.textContent = 'Collecting…';
+          trendStatusPill.className = 'weather-status-pill unavailable';
+        }
+        collectionPollTimer = setTimeout(()=>{ collectionPollTimer=null; pollCollectionStatus(); }, 2000);
+      } else if (coll.state === 'done') {
+        hideCollectingBanner();
+        collectionKnownDone = true;
+        console.log('[Trend] collection done, reloading trends');
+        loadTrendContext(5);
+        // Also update pill to show completion hint briefly
+        if (trendCollectingMsg) trendCollectingMsg.textContent = coll.message || 'Done';
+        if (collectionPollTimer) { clearTimeout(collectionPollTimer); collectionPollTimer=null; }
+        // After 5s, allow re-poll if user triggers re-collect
+        setTimeout(()=>{ collectionKnownDone=false; }, 15000);
+      } else if (coll.state === 'failed') {
+        showCollectingBanner(coll);
+        if (collectionPollTimer) { clearTimeout(collectionPollTimer); collectionPollTimer=null; }
+      } else {
+        // idle — nothing to do, hide banner if we previously showed it
+        if (coll.state === 'idle' && latestTrendContext && hasTrends(latestTrendContext)) {
+          hideCollectingBanner();
+        } else if (coll.state === 'idle' && !hasTrends(latestTrendContext)) {
+          // idle + no snapshot means collection never started — show banner as prompt
+          // (this happens on first load before lifespan fires)
+          showCollectingBanner({ state: 'collecting', message: 'Starting collection from global sources…', progress: {checked:0, total:4}, sources:{checked:0} });
+          collectionPollTimer = setTimeout(()=>{ collectionPollTimer=null; pollCollectionStatus(); }, 1500);
+        }
+      }
+    } catch (e) {
+      console.warn('[Trend] collection status fetch failed', e);
+    }
+  }
+
+  function hasTrends(payload) {
+    return !!(payload && payload.available && Array.isArray(payload.trends) && payload.trends.length);
+  }
+
+  // The /context endpoint is the canonical source; the snapshot endpoint is a
+  // secondary source used only when the compact context reports nothing, so a
+  // single anomalous response can never leave the card stuck on "No Snapshot".
+  async function fetchTrendPayload(limit, bust) {
+    const res = await fetch(`/api/v1/trends/context?limit=${limit}&_=${bust}`, { cache: 'no-store' });
+    if (!res.ok) throw new Error(`context status ${res.status}`);
+    const body = await res.json();
+    console.log('[Trend] /context payload:', JSON.stringify(body).slice(0, 400));
+    if (hasTrends(body)) return body;
+
+    try {
+      const alt = await fetch(`/api/v1/trends/current?limit=${limit}&_=${bust}`, { cache: 'no-store' });
+      if (alt.ok) {
+        const snap = await alt.json();
+        console.log('[Trend] /current fallback payload:', JSON.stringify(snap).slice(0, 400));
+        if (snap && Array.isArray(snap.trends) && snap.trends.length) {
+          return {
+            available: true,
+            status: 'ok',
+            message: null,
+            snapshot_time_utc: snap.snapshot_time_utc,
+            season: snap.season,
+            trends: snap.trends.slice(0, limit),
+            meta: snap.meta || {}
+          };
+        }
+      }
+    } catch (fallbackErr) {
+      console.warn('Trend snapshot fallback failed:', fallbackErr);
+    }
+    return body;
+  }
+
+  async function loadTrendContext(limit = 5, attempt = 0) {
+    if (trendLoading && attempt === 0) return;
+    if (attempt === 0) {
+      trendLoading = true;
+      if (trendStatusPill && !hasTrends(latestTrendContext)) {
+        trendStatusPill.className = 'weather-status-pill unavailable';
+        trendStatusPill.textContent = 'Loading...';
+      }
+    }
+    try {
+      const payload = await fetchTrendPayload(limit, Date.now());
+      markTrendChecked();
+      renderTrendContext(payload);
+      trendLoading = false;
+    } catch (err) {
+      trendLoading = false;
+      if (attempt < 2) {
+        // transient (e.g. server restarting) - retry before showing a failure
+        if (trendStatusPill) {
+          trendStatusPill.className = 'weather-status-pill unavailable';
+          trendStatusPill.textContent = 'Retrying...';
+        }
+        setTimeout(() => loadTrendContext(limit, attempt + 1), 700 * (attempt + 1));
+        return;
+      }
+      console.warn('Trend context unavailable:', err);
+      markTrendChecked();
+      renderTrendContext({ available: false, status: 'unavailable', message: 'Trend API is not reachable.' });
     }
   }
 

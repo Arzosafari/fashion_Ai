@@ -1,0 +1,91 @@
+# Seasonal affinity per canonical concept — GLOBAL
+# Range 0.5 = off-season, 1.0 = neutral, 1.2 = peak
+# Supports both gregorian seasons (spring/summer/autumn/winter) and normalized fashion seasons (Spring/Summer 2026, Fall/Winter 2026, Resort, Pre-Fall)
+affinities:
+  linen:
+    spring: 1.1
+    summer: 1.2
+    autumn: 0.7
+    winter: 0.5
+    Spring/Summer 2026: 1.2
+    Spring/Summer 2025: 1.15
+    Fall/Winter 2026: 0.6
+  wool:
+    spring: 0.6
+    summer: 0.5
+    autumn: 1.1
+    winter: 1.2
+    Fall/Winter 2026: 1.2
+    Spring/Summer 2026: 0.5
+  coat:
+    spring: 0.6
+    summer: 0.4
+    autumn: 1.0
+    winter: 1.2
+    Fall/Winter 2026: 1.2
+  elevated_bomber_jacket:
+    autumn: 1.2
+    winter: 1.1
+    Fall/Winter 2026: 1.2
+    Spring/Summer 2026: 0.9
+  oversized_floral_brooches:
+    spring: 1.2
+    summer: 1.1
+    Spring/Summer 2026: 1.2
+  animal_print:
+    autumn: 1.2
+    winter: 1.1
+    Fall/Winter 2026: 1.2
+  dramatic_bows:
+    spring: 1.2
+    Spring/Summer 2026: 1.2
+    Resort 2026: 1.15
+  sculptural_ruffles:
+    spring: 1.2
+    Spring/Summer 2026: 1.2
+  dark_florals:
+    autumn: 1.2
+    Fall/Winter 2026: 1.2
+  futuristic_fabrics:
+    Spring/Summer 2026: 1.1
+    Fall/Winter 2026: 1.1
+  oversized_blanket_plaids:
+    autumn: 1.2
+    winter: 1.2
+    Fall/Winter 2026: 1.25
+  red_tailoring:
+    spring: 1.15
+    Fall/Winter 2026: 1.15
+    Spring/Summer 2026: 1.2
+  statement_belts:
+    Spring/Summer 2026: 1.1
+    Fall/Winter 2026: 1.1
+  brown_suede:
+    autumn: 1.3
+    Fall/Winter 2026: 1.2
+  manteau:
+    spring: 1.1
+    summer: 1.1
+    autumn: 1.0
+    winter: 0.7
+  wide_leg_bottom:
+    spring: 1.1
+    summer: 1.2
+    autumn: 1.0
+    winter: 0.9
+    Spring/Summer 2026: 1.15
+  jeans:
+    spring: 1.0
+    summer: 0.8
+    autumn: 1.1
+    winter: 1.1
+
+default_affinity:
+  spring: 1.0
+  summer: 1.0
+  autumn: 1.0
+  winter: 1.0
+  Spring/Summer 2026: 1.0
+  Fall/Winter 2026: 1.0
+  Resort 2026: 1.0
+  Pre-Fall 2026: 1.0

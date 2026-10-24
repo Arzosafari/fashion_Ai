@@ -1,195 +1,254 @@
-# Fashion AI — Request Understanding & Weather Context Integration
+# Fashion AI — Voice/Text Understanding, Weather & Global Fashion Trends
 
-A modular, production-ready natural language understanding and contextual integration layer for **Fashion AI**. It accepts **English voice or typed input**, performs domain-optimized speech-to-text, maintains session-scoped multi-turn conversational memory, retrieves **independent environmental weather context** via **Open-Meteo** (`agents/weather_agent.py`), and produces **validated, machine-readable structured JSON** for the future Outfit Recommendation Engine.
+An integrated Fashion AI application with three cooperating modules:
 
----
+1. **Request Understanding** — real-time English speech-to-text (Vosk), a
+   fashion lexicon, typed or spoken requests, multi-turn follow-ups, and a
+   validated structured `FashionRequestOutput`.
+2. **Weather Context** — independent, validated Open-Meteo current/forecast
+   context (`WeatherContext`) with caching and graceful degradation.
+3. **Global Fashion Trend Intelligence** — collection from global editorial
+   sources (Vogue, Harper's Bazaar, Who What Wear, WGSN when legally
+   accessible), raw-document ingestion, fashion-observation extraction,
+   taxonomy normalization, Sentence-Transformers semantic clustering,
+   cross-source validation, freshness/seasonality scoring, evidence
+   provenance and point-in-time snapshots.
 
-## 🌟 Architecture & Request Lifecycle
+The modules stay decoupled: the trend module can run standalone, and the
+voice/text + weather pipeline keeps working even if the trend database or its
+dependencies are unavailable.
 
-```text
-                       USER INPUT
-                      /          \
-               Voice Input    Typed Input
-                      \          /
-                Editable Text Request
-                           |
-           Request Processing & Phonetic Lexicon
-                           |
-             Structured User Request (Pydantic)
-                           |
-                           +------------------------+
-                           |                        |
-                           v                        v
-            FashionRequestOutput           WeatherContextService
-          (User Request Features)        (agents/weather_agent.py)
-                           |                        |
-                           |                 WeatherContext
-                           |                        |
-                           +-----------+------------+
-                                       |
-                              ContextIntegrator
-                         (RecommendationContext JSON)
-                                       |
-                         Future Recommendation Engine
+```
+User voice / typed request
+        │
+        ▼
+Request understanding + feature extraction  ──►  FashionRequestOutput
+        │                                             │
+        │                                             ├──► WeatherContext (independent)
+        │                                             └──► TrendContext   (independent)
+        ▼
+RecommendationContext  ──►  (future) Recommendation Engine
 ```
 
-### Design Invariants
-1. **Strict Separation of Concerns**: `FashionRequestOutput` captures *only* the user's request (`intent`, `occasion`, `location`, `time`, `style_preferences`, `garment_preferences`, `colors`, `fit_preferences`, `functional_requirements`, `constraints`). Environmental observations and forecasts live exclusively in `WeatherContext` and are never injected into user transcripts or converted into permanent style preferences.
-2. **Existing Weather Module Preserved**: Reuses `agents/weather_agent.py` (`WeatherAgent`, Open-Meteo `/v1/forecast`), keeping `WeatherAgent.get_weather(latitude, longitude) -> dict` intact while supporting current observations, hourly sub-day forecast windows, daily forecasts up to 16 days ahead, and Open-Meteo geocoding.
-3. **Graceful Degradation**: Weather or network failures never break voice transcription, transcript editing, TTS audio feedback, or `POST /api/understand`. Unavailable weather states are represented explicitly with `available: false` and a typed `status` code rather than fabricated weather values.
-
----
-
-## 📍 Location Resolution Priority
-
-`LocationResolver` (`fashion_stt/weather_context.py`) resolves geographic locations strictly in priority order:
-
-1. **Explicit Geographic Location in Current User Request (`source = "request"`)**  
-   Extracted cities/places in the spoken or typed request (e.g., *"I need an outfit for tomorrow morning in Boston"*). Non-geographic venue descriptors (*"outdoor"*, *"office"*, *"restaurant"*, *"beach"*, *"campus"*, *"rooftop"*) are preserved on `FashionRequestOutput.location` for downstream reasoning without being misinterpreted as city names.
-2. **Explicit Application / Request Setting (`source = "settings"` or `"coordinates"`)**  
-   Optional `location` or `(latitude, longitude)` supplied on the request payload, configured via `WEATHER_DEFAULT_LOCATION` / `WEATHER_DEFAULT_LATITUDE` + `WEATHER_DEFAULT_LONGITUDE`, or supplied by a modular `fallback_provider` callable hook ready for future User Profile Module integration.
-3. **Unavailable (`status = "missing_location"`, `available = false`)**  
-   If neither source provides a geographic location, no fallback city or IP guess is ever invented.
-
----
-
-## 🕒 Time & Forecast Selection
-
-- **Unspecified time (`null`) / `"now"`**: Queries Open-Meteo current observations (`mode = "current"`, sets `observed_at`).
-- **Same-day or future sub-day windows** (*"this morning"*, *"this afternoon"*, *"tonight"*, *"tomorrow morning"*): Queries Open-Meteo hourly forecast series for the exact local hour window (`08:00–11:00`, `12:00–17:00`, `18:00–21:00`) on the resolved target date (`mode = "forecast"`, sets `forecast_for`, e.g., `"2026-10-24 morning"`).
-- **Whole-day future dates** (*"tomorrow"*, *"this Saturday"*, *"this weekend"*, `"YYYY-MM-DD"`): Queries Open-Meteo daily & hourly forecast summaries (`mode = "forecast"`, sets `forecast_for`, `temperature_range`, `precipitation_probability`).
-- **Out-of-range dates** (past dates or dates `> 16` days ahead such as *"next month"* or `"2026-12-20"`): Returns `available = false`, `status = "unsupported_forecast_date"` without silently substituting current weather conditions.
-
----
-
-## 📡 Backend API & Data Contracts
-
-Authentication: None required (local/service API; CORS enabled).
-
-### 1. `POST /api/understand`
-Processes typed or transcribed spoken requests and returns separated user request and weather contexts.
-
-**Request Body (`UnderstandRequest`):**
-```json
-{
-  "text": "I need an outfit for tomorrow morning in Boston.",
-  "session_id": "session_a1b2c3d4",
-  "input_method": "text",
-  "raw_transcript": null,
-  "location": null,
-  "latitude": null,
-  "longitude": null
-}
-```
-
-**Response Body (`UnderstandResponse`):**
-- `structured_data`: `FashionRequestOutput` (user request features only)
-- `weather_context`: `WeatherContext` (environmental weather context only)
-- `recommendation_context`: `RecommendationContext` (`{ "request_context": ..., "weather_context": ... }`)
-- `assistant_response`, `tts_url`, `session_id`, `turn_index`
-
-### 2. `GET /api/weather`
-Standalone environmental weather endpoint.
-
-**Query Parameters:**
-| Parameter | Type | Required | Description |
-| :--- | :--- | :--- | :--- |
-| `location` | `string` | Conditional | City/region name (e.g., `"Boston"`) or `"lat, lon"` string. Required unless coordinates or `WEATHER_DEFAULT_LOCATION` are set. |
-| `latitude` | `float` | Conditional | Latitude in `[-90.0, 90.0]` (must be paired with `longitude`). |
-| `longitude` | `float` | Conditional | Longitude in `[-180.0, 180.0]` (must be paired with `latitude`). |
-| `date_or_time` | `string` | Optional | ISO date (`"2026-10-24"`), date + window (`"2026-10-24 morning"`), or relative phrase (`"this afternoon"`, `"this Saturday"`). |
-
-**Response Schema (`WeatherContext`):**
-```json
-{
-  "available": true,
-  "status": "ok",
-  "mode": "forecast",
-  "message": null,
-  "location": {
-    "name": "Boston",
-    "latitude": 42.3601,
-    "longitude": -71.0589,
-    "country": "United States",
-    "timezone": "America/New_York",
-    "source": "request"
-  },
-  "observed_at": null,
-  "forecast_for": "2026-10-24 morning",
-  "temperature": { "value": 9.5, "unit": "C" },
-  "temperature_range": { "min": 8.5, "max": 11.0, "unit": "C" },
-  "feels_like": { "value": 7.5, "unit": "C" },
-  "condition": "light_rain",
-  "humidity": { "value": 0.8, "unit": "ratio" },
-  "precipitation": { "value": 2.5, "unit": "mm" },
-  "precipitation_probability": 65.0,
-  "wind_speed": { "value": 14.0, "unit": "km/h" },
-  "agent_metrics": {
-    "temp": 9.5,
-    "humidity": 0.8,
-    "precipitation": 0.025,
-    "wind_speed": 14.0
-  },
-  "source": "open-meteo",
-  "cached": false,
-  "fetched_at": "2026-10-23T13:20:00Z",
-  "cache_expires_at": "2026-10-23T13:30:00Z"
-}
-```
-
-### Units & Explicit Error States
-- **Units**: Temperature & Feels-Like in `"C"` (Celsius), Wind Speed in `"km/h"`, Precipitation amount in `"mm"`, Humidity normalized ratio in `[0.0, 1.0]` (`unit: "ratio"`, matching `WeatherAgent.get_weather()`), Forecast Precipitation Probability in `[0.0, 100.0]` (`%`). Note: Open-Meteo `/v1/forecast` does not provide government weather alerts, so alert fields are never fabricated.
-- **Status Codes (`WeatherContext.status`)**:
-  - `"ok"` — Fresh or valid cached weather data available (`available: true`)
-  - `"missing_location"` — No geographic location supplied in request or settings
-  - `"invalid_location"` — Out-of-bounds coordinates or unrecognized place name
-  - `"unsupported_forecast_date"` — Past date, date `> 16` days out, or unparseable temporal expression
-  - `"timeout"` — Upstream weather request timed out
-  - `"network_error"` — Upstream connection/TLS failure
-  - `"rate_limited"` — Provider returned HTTP `429`
-  - `"invalid_credentials"` — Provider rejected API key (`401`/`403`)
-  - `"invalid_response"` — Non-JSON or malformed field types
-  - `"missing_weather_fields"` — Required provider weather fields missing or null
-
----
-
-## ⚙️ Environment Variables & Caching
-
-Open-Meteo's free forecast and geocoding endpoints require **no API key**. Optional environment variables (documented in `.env.example`):
-
-- `PORT` (default `8000`): FastAPI HTTP/WebSocket server port.
-- `WEATHER_API_BASE_URL` (default `https://api.open-meteo.com/v1/forecast`): Forecast & current observation endpoint.
-- `WEATHER_GEOCODING_URL` (default `https://geocoding-api.open-meteo.com/v1/search`): Place geocoding endpoint.
-- `WEATHER_API_KEY` (optional, unset by default): Commercial Open-Meteo API key if used; never hardcoded or exposed to frontend clients.
-- `WEATHER_API_TIMEOUT` (default `10`): HTTP request timeout in seconds (`WeatherAgent()` direct default remains `15`).
-- `WEATHER_CACHE_TTL_SECONDS` (default `600`): TTL in seconds for bounded thread-safe in-memory `WeatherCache` (`0` disables caching; expired entries are evicted immediately and never served as live weather).
-- `WEATHER_CACHE_MAX_SIZE` (default `128`): Maximum cached `(lat, lon, mode, window)` entries.
-- `WEATHER_MAX_FORECAST_DAYS` (default `16`): Supported Open-Meteo forecast horizon in days.
-- `WEATHER_TIMEZONE` (default `auto`): Provider timezone resolution setting.
-- `WEATHER_DEFAULT_LOCATION` / `WEATHER_DEFAULT_LATITUDE` / `WEATHER_DEFAULT_LONGITUDE` (unset by default): Optional explicit deployment fallback location.
-
----
-
-## 🚀 Running & Verifying the Application
+## Quick start
 
 ```bash
-# 1. Install dependencies
+python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
-# 2. Launch the web application & API server
-python run_server.py
+# existing voice/text + weather + trend API (integrated app)
+python run_server.py                     # http://localhost:8000
+# or
+uvicorn fashion_stt.server:app --host 0.0.0.0 --port 8000
+
+# trend module only (same routers, standalone)
+uvicorn trend_system.main:app --host 0.0.0.0 --port 8001
 ```
 
-Open **`http://localhost:8000`** in your browser.
+The first voice request downloads the Vosk model into `models/` (requires
+network access). The trend module uses the existing SQLite database
+`trends.db` and never requires PostgreSQL.
 
-### Running Automated Tests
+### Operating the trend pipeline
 
 ```bash
-# Run full unit, STT WER evaluation, NLU evaluation, and weather integration suite:
-python -m unittest discover -v tests
-# or with pytest:
-pytest -v
+# seed / refresh reference data (idempotent, never deletes trend data)
+python scripts/seed_sources.py
+
+# collect → ingest → snapshot (respects robots.txt; WGSN skipped when blocked)
+python scripts/run_collector.py
+
+# materialize a snapshot from existing evidence
+python scripts/materialize_snapshot.py
+
+# optional: offline demo data (synthetic, excluded from production snapshots)
+python scripts/seed_demo.py
 ```
 
-- **Mocked unit & pipeline integration tests** (`TestMockedWeatherModuleIntegration` + all existing STT/NLU suites) run deterministically offline without external network dependencies.
-- **Live Open-Meteo provider integration test** (`TestLiveOpenMeteoProviderIntegration`) automatically executes against `https://api.open-meteo.com/v1/forecast` whenever outbound internet access to Open-Meteo is reachable, and skips cleanly with an explicit notice in network-isolated sandboxes.
+Background scheduling is **opt-in and off by default**; the API never starts a
+scheduler, so no duplicate recurring jobs are registered:
+
+```bash
+TREND_SCHEDULER_ENABLED=1 python scripts/schedule_trends.py
+```
+
+## API
+
+### Integrated app (`fashion_stt.server`)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET  | `/api/health` | Module status (request understanding, weather, trends) |
+| POST | `/api/understand` | Voice/typed request → structured features + weather + trend context |
+| GET  | `/api/weather` | Standalone weather context |
+| POST | `/api/weather/resolve` | Validate relayed Open-Meteo payloads |
+| POST | `/api/transcribe` | Audio file → transcript + entities |
+| WS   | `/ws/transcribe` | Real-time PCM streaming |
+| GET  | `/api/catalog`, `/api/extract`, `/api/tts` | Existing utilities |
+| GET  | `/api/v1/trends/*`, `/api/v1/sources/*` | Global trend module (see below) |
+
+### Web UI
+
+`public/` (served at `/`) keeps the existing voice/text conversation panel and
+adds two independent context cards in the inspector on the right:
+
+* **Environmental Weather Context** — unchanged Open-Meteo module.
+* **Global Fashion Trend Context** — populated from
+  `GET /api/v1/trends/context?limit=5` on page load and refreshed from
+  `recommendation_context.trend_context` after each request. It shows the
+  snapshot date/season and the ranked trends with score bars. If the trend
+  module is disabled or the snapshot is missing, the card shows an
+  "Unavailable"/"No Snapshot Yet" state and the rest of the UI keeps working.
+
+### Trend module
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET  | `/api/v1/trends/current?limit=&category=&lifecycle=&trend_scope=` | Latest materialized snapshot |
+| GET  | `/api/v1/trends/for-recommendation?limit=&season=` | Actionable trends, ranked (for the recommendation engine) |
+| GET  | `/api/v1/trends/context?limit=` | Compact, documented context used by the request pipeline |
+| GET  | `/api/v1/trends?q=&category=&lifecycle=&sort=&order=&limit=` | Trend table query |
+| GET  | `/api/v1/trends/by-name/{canonical}` | Trend + top evidence snippets |
+| GET  | `/api/v1/trends/history/{trend_id}?from_date=&to_date=` | Historical scores |
+| POST | `/api/v1/trends/refresh?limit=` | On-demand collect + snapshot |
+| GET  | `/api/v1/sources`, `/api/v1/sources/{id}/health`, `/api/v1/sources/runs/history` | Source registry + health |
+| GET  | `/health` | Standalone trend app health (port 8001) |
+
+Example (`GET /api/v1/trends/for-recommendation?limit=1`, historical data):
+
+```json
+{
+  "snapshot_time_utc": "2026-10-04T06:31:56.822584",
+  "snapshot_time_jalali": "1405-07-12",
+  "season": "autumn",
+  "trends": [{
+    "trend": "black",
+    "canonical_name": "black",
+    "category": "color",
+    "trend_score": 0.6856,
+    "current_score": 0.6856,
+    "iran_relevance": 1.0,
+    "global_strength": 0.9494,
+    "lifecycle": "emerging",
+    "confidence": 0.941,
+    "evidence_count": 17,
+    "supporting_sources": 2,
+    "seasonal_relevance": 1.0,
+    "growth": 1.2662,
+    "is_actionable": true,
+    "explanation": "black is emerging based on 17 signals ... Trend scope global ...",
+    "components": {"G": 0.9494, "C": 1.6826, "C_norm": 0.8413, "P": 0.2, "R": 0.941,
+                   "Gw": 1.2662, "Gw_norm": 0.974, "S": 1.0, "S_norm": 0.8333,
+                   "I": 1.0, "semantic_consistency": 0.85, "recurrence": 0.2}
+  }],
+  "meta": {"scoring_version": "v2_global", "scoring_mode": "gated_geom", "total": 40}
+}
+```
+
+Empty database / unavailable module responses are HTTP 200 with
+`available: false` and `status: "no_snapshot" | "unavailable"`, so callers never
+need to special-case failures.
+
+## Trend scoring
+
+`config/scoring.yaml` (all thresholds configurable, no hard-coded values):
+
+```
+G      = Σ(w·confidence·authority) / Σ(w)        source quality
+R      = Σ(w)/n                                 freshness (w = 2^(-age/half_life))
+C      = 1 + ln(1+distinct_sources) / ln(1+max_sources);  C_norm = C/2
+P      = distinct_days / window_days            recurrence
+Gw     = clamp(1+growth, 0.8, 1.3) / 1.3
+S      = seasonal_affinity / 1.2
+I      = 1.0                                    neutral gate (global scope)
+
+score  = exp( Σ w_k·ln(x_k) / Σ w_k ) · I^gate   (gated geometric mean)
+x = {G, C_norm, P, R, Gw, S}
+```
+
+Freshness half-life (`HALF_LIFE_DAYS`, default 30) and clustering similarity
+(`TREND_SIMILARITY_THRESHOLD`, default 0.58) are environment-configurable. The
+implementation reproduces the historical snapshots in `trends.db` (37/40 trend
+scores within 0.01 of the original; mean Δ 0.002).
+
+## Sources and compliance
+
+| Source | Enabled | Access | Notes |
+|--------|---------|--------|-------|
+| Vogue (`vogue`) | ✅ | public | sitemap + RSS |
+| Harper's Bazaar (`harpers_bazaar`) | ✅ | public | `sitemap_index.xml` |
+| Who What Wear (`whowhatwear`) | ✅ | public | `sitemap.xml` monthly archives |
+| WGSN (`wgsn`) | ✅ (restricted) | paywall / `robots.txt` disallows `*` | adapter exists and is **skipped gracefully**; no bypass |
+| Business of Fashion, ELLE, Google/Pinterest trends | ⛔ disabled | — | kept for extensibility |
+
+Collection respects `robots.txt`, rate limits (`RATE_LIMIT_DELAY`), timeouts and
+retry limits, and stores only short evidence snippets — never full copyrighted
+articles. Iranian source adapters and historical rows are retained for audit but
+are **not enabled** in the global pipeline (`trend_scope=global`).
+
+## Configuration
+
+Copy `.env.example` → `.env` for overrides. Key variables:
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `DATABASE_URL` | `sqlite+aiosqlite:///<repo>/trends.db` | Trend database (SQLite default) |
+| `SYNC_DATABASE_URL` | `sqlite:///<repo>/trends.db` | Sync tools/scripts |
+| `HALF_LIFE_DAYS` | `30` | Freshness half-life |
+| `TREND_SIMILARITY_THRESHOLD` | `0.58` | Semantic clustering threshold |
+| `WINDOW_DAYS` | `30` | Scoring/evidence window |
+| `EXCLUDE_SYNTHETIC` | `1` | Exclude synthetic seed docs from snapshots |
+| `TREND_SCHEDULER_ENABLED` | `0` | Opt-in background scheduler |
+| `LLM_ENABLED` / `LLM_PROVIDER` / `LLM_API_KEY` | `false` / `dummy` / — | Optional extraction provider; never commit keys |
+| `WEATHER_*` | Open-Meteo defaults | Existing weather module |
+
+Other config files: `config/scoring.yaml`, `config/taxonomy.yaml`,
+`config/sources.yaml`, `config/seasonal_affinity.yaml`, `config/llm.yaml`.
+
+## Sentence-Transformers embeddings
+
+Semantic clustering uses `paraphrase-multilingual-MiniLM-L12-v2` when
+`sentence-transformers` + `torch` are installed:
+
+```bash
+pip install -e ".[embeddings]"
+```
+
+Without them, the module falls back to deterministic hash embeddings plus a
+synonym-aware lexical guard (same API, no external dependency). Category guards
+prevent false merges such as *red tailoring* (styling) ↔ *red handbag*
+(accessory).
+
+## Data safety
+
+* `trends.db` is preserved; schema evolution uses additive
+  `ALTER TABLE … ADD COLUMN` only (no drops, no destructive migrations).
+* Snapshots/history/evidence are append-only; re-materializing the same
+  timestamp is idempotent.
+* `pytest` runs against a temporary copy of `trends.db` (see
+  `tests/conftest.py`), so tests never modify the historical database.
+* Secrets belong in `.env` (git-ignored); `.env.example` contains placeholders.
+
+## Testing
+
+```bash
+pytest -q                        # full suite (offline: 84 passed; voice WER tests
+                                 # need the Vosk model download and internet)
+pytest tests/test_trend_integration.py -q
+pytest tests/test_global_migration.py tests/test_temporal.py tests/test_evidence_trace.py -q
+```
+
+Network-dependent voice tests are skipped/failed gracefully when the Vosk model
+cannot be downloaded. Live collection from vogue.com etc. requires outbound
+network access; it is intentionally not exercised by the test-suite.
+
+## Documentation
+
+* `FASHION_TREND_INTELLIGENCE_ARCHITECTURE*.md` — original architecture,
+  data flow and scoring rationale.
+* `GLOBAL_MIGRATION_REPORT.md`, `VERIFICATION_REPORT.md`,
+  `FINAL_READINESS_REPORT.md` — historical validation of the trend module.
+
+## License
+
+Research prototype — respect robots.txt, rate limits and source terms.

@@ -1040,3 +1040,211 @@ body {
   color: var(--gold-primary);
   font-weight: 600;
 }
+
+/* =========================================================================
+   Global Fashion Trend Context (independent module)
+   ========================================================================= */
+.trend-context-section {
+  background: var(--bg-primary);
+  border: 1px solid rgba(230, 197, 100, 0.28);
+  border-radius: var(--radius-md);
+  padding: 14px;
+  margin-bottom: 16px;
+}
+
+.trend-context-section .independent-tag {
+  background: rgba(230, 197, 100, 0.14);
+  color: var(--gold-primary);
+}
+
+.trend-meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.trend-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.trend-empty {
+  font-size: 11px;
+  color: var(--text-faint);
+  margin: 0;
+}
+
+.trend-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: var(--radius-sm);
+}
+
+.trend-rank {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-faint);
+  min-width: 22px;
+}
+
+.trend-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.trend-title {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 12px;
+  color: #fff;
+  text-transform: capitalize;
+}
+
+.trend-tag {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--text-faint);
+}
+
+.trend-tag.lifecycle {
+  background: rgba(46, 204, 113, 0.14);
+  color: #58d68d;
+}
+
+.trend-bar {
+  height: 4px;
+  margin-top: 5px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.07);
+  overflow: hidden;
+}
+
+.trend-bar span {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  background: linear-gradient(90deg, var(--gold-primary), rgba(230, 197, 100, 0.45));
+}
+
+.trend-footnote {
+  display: block;
+  margin-top: 4px;
+  font-size: 10px;
+  color: var(--text-faint);
+}
+
+.trend-score {
+  text-align: right;
+  min-width: 42px;
+}
+
+.trend-score strong {
+  display: block;
+  font-size: 14px;
+  color: var(--gold-primary);
+}
+
+.trend-score span {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--text-faint);
+}
+
+.trend-refresh-btn {
+  font-size: 10px;
+  padding: 3px 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(230, 197, 100, 0.35);
+  color: var(--gold-primary);
+  background: transparent;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.trend-refresh-btn:hover {
+  background: rgba(230, 197, 100, 0.12);
+}
+
+.trend-collecting-banner {
+  background: linear-gradient(135deg, rgba(230,197,100,0.08), rgba(255,255,255,0.02));
+  border: 1px solid rgba(230,197,100,0.3);
+  border-radius: var(--radius-md);
+  padding: 12px;
+  margin-bottom: 12px;
+}
+
+.collecting-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--gold-primary);
+  margin-bottom: 6px;
+}
+
+.collecting-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(230,197,100,0.3);
+  border-top-color: var(--gold-primary);
+  border-radius: 50%;
+  animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.collecting-status {
+  font-size: 10px;
+  padding: 2px 7px;
+  border-radius: var(--radius-pill);
+  background: rgba(230,197,100,0.15);
+  color: var(--gold-primary);
+  border: 1px solid var(--border-gold);
+}
+
+.collecting-msg {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+  line-height: 1.4;
+}
+
+.collecting-progress {
+  height: 4px;
+  background: rgba(255,255,255,0.07);
+  border-radius: 3px;
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+
+.collecting-bar {
+  height: 100%;
+  background: linear-gradient(90deg, var(--gold-primary), #f1c40f);
+  transition: width 0.6s ease;
+  border-radius: 3px;
+}
+
+.collecting-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.collecting-hint {
+  font-size: 10px;
+  color: var(--text-faint);
+}

@@ -188,13 +188,46 @@ class WeatherContext(BaseModel):
     cache_expires_at: Optional[str] = Field(default=None, description="UTC ISO-8601 timestamp when cache entry expires.")
 
 
+class TrendContextItem(BaseModel):
+    """One global fashion trend surfaced to the request/recommendation layer."""
+    canonical_name: str = Field(description="Canonical taxonomy name of the trend.")
+    category: Optional[str] = Field(default=None, description="Taxonomy category (garment, styling, material, ...).")
+    trend_score: Optional[float] = Field(default=None, ge=0.0, le=1.0, description="Current trend score in [0, 1].")
+    lifecycle: Optional[str] = Field(default=None, description="emerging | rising | established | stable | declining | inactive")
+    supporting_sources: Optional[int] = Field(default=None, description="Number of independent sources backing the trend.")
+    evidence_count: Optional[int] = Field(default=None, description="Number of evidence signals inside the scoring window.")
+    is_actionable: Optional[bool] = Field(default=None, description="True when minimum evidence/source thresholds are met.")
+    seasonal_relevance: Optional[float] = Field(default=None, description="Seasonal affinity multiplier (0.5-1.2).")
+    explanation: Optional[str] = Field(default=None, description="Human-readable explanation of the score.")
+
+
+class TrendContext(BaseModel):
+    """
+    Global fashion trend context, kept independent from the user request and the
+    weather context.  Empty/degraded states are explicit instead of raising, so
+    the request pipeline always succeeds when trend data is unavailable.
+    """
+    available: bool = Field(description="True only when a materialized trend snapshot exists.")
+    status: Literal["ok", "no_snapshot", "unavailable"] = Field(description="Machine-readable availability status.")
+    message: Optional[str] = Field(default=None, description="Human-readable explanation when unavailable.")
+    snapshot_time_utc: Optional[str] = Field(default=None, description="UTC timestamp of the materialized snapshot.")
+    season: Optional[str] = Field(default=None, description="Season the snapshot was computed for.")
+    trends: List[TrendContextItem] = Field(default_factory=list, description="Ranked trends (highest score first).")
+    meta: Dict[str, Any] = Field(default_factory=dict, description="Scoring version/mode and totals.")
+
+
 class RecommendationContext(BaseModel):
     """
-    Aggregated context payload combining the independent user request features and
-    environmental weather context for downstream consumption by the Recommendation Engine.
+    Aggregated context payload combining the independent user request features,
+    environmental weather context and global fashion trend context for downstream
+    consumption by the Recommendation Engine.
     """
     request_context: FashionRequestOutput
     weather_context: WeatherContext
+    trend_context: Optional[TrendContext] = Field(
+        default=None,
+        description="Global fashion trend context (optional; weather and trends are independent)."
+    )
 
 
 class UnderstandRequest(BaseModel):
