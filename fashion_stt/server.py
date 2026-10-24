@@ -237,6 +237,12 @@ def create_app(
 
         The existing voice/text and weather modules do not depend on this; a
         failure is logged and the application keeps serving.
+
+        If the DB has no snapshot (fresh clone, empty trends.db), a background
+        task immediately starts collecting from global sources (Vogue,
+        Harper's Bazaar, Who What Wear; WGSN skipped via robots.txt) so the
+        user sees 'Collecting…' then fresh trends without ever needing a manual
+        refresh. See trend_system/collection_status.py for state machine.
         """
         app.state.trend_bootstrap = None
         if trends_enabled:
@@ -245,6 +251,13 @@ def create_app(
             except Exception as exc:  # pragma: no cover - depends on deployment
                 logger.exception("Trend module bootstrap failed: %s", exc)
                 app.state.trend_bootstrap = {"status": "failed", "error": str(exc)}
+            # Auto-collect in background when empty — never blocks startup or the UI
+            try:
+                from trend_system.collection_status import ensure_auto_collection_if_needed
+
+                ensure_auto_collection_if_needed()
+            except Exception as exc:
+                logger.warning("Auto-collection not started: %s", exc)
         yield
 
     app = FastAPI(
@@ -253,7 +266,7 @@ def create_app(
             "Unified Voice & Text Input, Accurate English STT, Feature Extraction, "
             "Independent Weather Context Integration and Global Fashion Trend Context"
         ),
-        version="2.2.0",
+        version="2.3.0",
         lifespan=lifespan,
     )
 

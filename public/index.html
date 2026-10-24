@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Fashion AI — User Request Understanding Module</title>
-  <link rel="stylesheet" href="style.css?v=2.2.3">
+  <link rel="stylesheet" href="style.css?v=2.2.4">
 </head>
 <body>
   <div class="app-container">
@@ -325,6 +325,20 @@
               <span class="source-tag" id="trendScopeMeta">Scope: global</span>
               <span class="source-tag" id="trendCheckedMeta">Checked: &mdash;</span>
             </div>
+            <!-- Collecting banner — shown only while background collection is active (empty DB) -->
+            <div id="trendCollectingBanner" class="trend-collecting-banner" style="display: none;">
+              <div class="collecting-header">
+                <span class="collecting-spinner" aria-hidden="true"></span>
+                <strong id="trendCollectingTitle">Collecting fresh global trends…</strong>
+                <span id="trendCollectingStatus" class="collecting-status">Starting</span>
+              </div>
+              <div class="collecting-msg" id="trendCollectingMsg">Contacting Vogue, Harper's Bazaar, Who What Wear (respecting robots.txt/TOS)…</div>
+              <div class="collecting-progress"><div id="trendCollectingBar" class="collecting-bar" style="width: 0%"></div></div>
+              <div class="collecting-actions">
+                <button id="trendCollectNowBtn" class="btn-gold btn-sm" type="button" title="Re-run collection now">↻ Re-collect Now</button>
+                <span class="collecting-hint">Fresh trends will appear here and be added to your next voice/text request automatically.</span>
+              </div>
+            </div>
             <div class="trend-list" id="trendList">
               <p class="trend-empty">Loading trend snapshot&hellip;</p>
             </div>
@@ -352,7 +366,7 @@
   <!-- Hidden Audio Element for Text-to-Speech Playback -->
   <audio id="ttsAudioPlayer" preload="auto"></audio>
 
-  <script src="fashion-stt.js?v=2.2.3"></script>
-  <script src="app.js?v=2.2.3"></script>
+  <script src="fashion-stt.js?v=2.2.4"></script>
+  <script src="app.js?v=2.2.4"></script>
 </body>
 </html>

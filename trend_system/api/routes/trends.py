@@ -222,16 +222,44 @@ async def get_history(trend_id: str, from_date: str | None = None, to_date: str 
         } for r in filtered
     ]}
 
+@router.get("/collection/status")
+async def collection_status():
+    """Live collection progress (empty DB → collecting → done). Polled by the UI."""
+    from trend_system.collection_status import get_collection_status
+    return get_collection_status()
+
+
+@router.post("/collection/start")
+async def collection_start(limit: int = Query(5, ge=1, le=20)):
+    """Manual trigger: re-collect from global sources (Vogue, Harper's Bazaar, Who What Wear; WGSN auto-skipped)."""
+    from trend_system.collection_status import trigger_manual_collection
+    result = await trigger_manual_collection(limit_per_source=limit)
+    return result
+
+
 @router.get("/context", response_model=TrendContextResponse)
 async def trend_context(limit: int = Query(5, ge=1, le=20)):
     """Compact, documented trend context for the request/recommendation layer.
 
     Always returns HTTP 200: ``available=false`` with a machine-readable
     ``status`` when the database is empty or the module is unavailable.
+    When a collection is in progress (empty DB on first startup), ``meta``
+    contains ``collection`` so the UI can show 'Collecting…' instead of a dead end.
     """
     from trend_system.service import get_trend_context
+    from trend_system.collection_status import get_collection_status
 
-    return await get_trend_context(limit=limit)
+    result = await get_trend_context(limit=limit)
+    # Attach collection progress so empty-DB clients don't need a second request to know we're working
+    try:
+        coll = get_collection_status()
+        if coll.get("state") in ("collecting", "seeding_fallback"):
+            meta = result.get("meta") or {}
+            meta["collection"] = coll
+            result["meta"] = meta
+    except Exception:
+        pass
+    return result
 
 
 @router.get("/{trend_id}")

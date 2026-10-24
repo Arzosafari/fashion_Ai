@@ -73,6 +73,12 @@ document.addEventListener('DOMContentLoaded', () => {
   const trendUnavailableNote = document.getElementById('trendUnavailableNote');
   const trendCheckedMeta = document.getElementById('trendCheckedMeta');
   const trendRefreshBtn = document.getElementById('trendRefreshBtn');
+  const trendCollectingBanner = document.getElementById('trendCollectingBanner');
+  const trendCollectingTitle = document.getElementById('trendCollectingTitle');
+  const trendCollectingStatus = document.getElementById('trendCollectingStatus');
+  const trendCollectingMsg = document.getElementById('trendCollectingMsg');
+  const trendCollectingBar = document.getElementById('trendCollectingBar');
+  const trendCollectNowBtn = document.getElementById('trendCollectNowBtn');
   const jsonOutput = document.getElementById('jsonOutput');
   const copyJsonBtn = document.getElementById('copyJsonBtn');
   const ttsAudioPlayer = document.getElementById('ttsAudioPlayer');
@@ -96,6 +102,8 @@ document.addEventListener('DOMContentLoaded', () => {
   let latestTrendContext = null;
   let trendFetchedAt = 0;
   let trendLoading = false;
+  let collectionPollTimer = null;
+  let collectionKnownDone = false;
 
   // Initialize Canvas
   function resizeCanvas() {
@@ -533,6 +541,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Load the latest global trend snapshot immediately (independent of user input).
   loadTrendContext(5);
+  // Kick off collection-status poll in parallel so empty-DB users see 'Collecting…' right away
+  pollCollectionStatus();
 
   if (trendRefreshBtn) {
     trendRefreshBtn.addEventListener('click', (event) => {
@@ -541,11 +551,29 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  if (trendCollectNowBtn) {
+    trendCollectNowBtn.addEventListener('click', async (event) => {
+      event.preventDefault();
+      trendCollectNowBtn.textContent = 'Starting…';
+      trendCollectNowBtn.disabled = true;
+      try {
+        const r = await fetch('/api/v1/trends/collection/start?limit=5', { method: 'POST' });
+        const j = await r.json();
+        console.log('[Trend] manual collection start:', j);
+      } catch (e) { console.warn('[Trend] manual collect failed', e); }
+      collectionKnownDone = false;
+      pollCollectionStatus();
+      setTimeout(()=>loadTrendContext(5), 800);
+      setTimeout(()=>{ trendCollectNowBtn.textContent = '↻ Re-collect Now'; trendCollectNowBtn.disabled = false; }, 3000);
+    });
+  }
+
   // Re-check the snapshot when the user returns to the tab (data may have changed,
   // and the first load may have happened while the server was restarting).
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible' && Date.now() - trendFetchedAt > 60000) {
       loadTrendContext(5);
+      pollCollectionStatus();
     }
   });
 
@@ -953,37 +981,60 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     latestTrendContext = trendContext || null;
     console.log('[Trend] render input:', JSON.stringify(trendContext, null, 2));
+    // If a background collection is running (empty DB on first startup), surface it immediately
+    const coll = trendContext && trendContext.meta && trendContext.meta.collection ? trendContext.meta.collection : null;
+    if (coll && (coll.state === 'collecting' || coll.state === 'seeding_fallback')) {
+      showCollectingBanner(coll);
+      if (!collectionPollTimer) pollCollectionStatus();
+    } else if (coll && coll.state === 'failed') {
+      showCollectingBanner(coll);
+    } else {
+      hideCollectingBanner();
+    }
     const available = !!(trendContext && trendContext.available && Array.isArray(trendContext.trends) && trendContext.trends.length);
     if (!available) {
       const status = trendContext ? trendContext.status : null;
       trendStatusPill.className = 'weather-status-pill unavailable';
-      trendStatusPill.textContent = status === 'no_snapshot'
-        ? 'No Snapshot Yet'
-        : (status && status !== 'unavailable' ? `Unavailable (${status})` : 'Unavailable');
+      // If we are collecting, keep the pill as 'Collecting…' instead of 'No Snapshot Yet'
+      if (coll && (coll.state === 'collecting' || coll.state === 'seeding_fallback')) {
+        trendStatusPill.textContent = 'Collecting…';
+      } else {
+        trendStatusPill.textContent = status === 'no_snapshot'
+          ? 'No Snapshot Yet'
+          : (status && status !== 'unavailable' ? `Unavailable (${status})` : 'Unavailable');
+      }
       if (trendSnapshotMeta) trendSnapshotMeta.textContent = 'Snapshot: \u2014';
       if (trendSeasonMeta) trendSeasonMeta.textContent = 'Season: \u2014';
       if (trendScopeMeta) trendScopeMeta.textContent = 'Scope: global';
       const diag = trendContext
         ? `status=${trendContext.status || 'unknown'} available=${trendContext.available} trends=${(trendContext.trends||[]).length} snapshot=${trendContext.snapshot_time_utc || 'none'}${trendContext.message ? ' \u2014 ' + trendContext.message : ''}`
         : 'no payload (network error)';
-      trendList.innerHTML = `<p class="trend-empty">Trend context is not available right now. Voice, text and weather keep working normally.</p><p class="trend-empty" style="font-size:11px;opacity:0.7;margin-top:6px;">Diagnostic: ${escapeHtml(diag)} — fetching DB info…</p>`;
-      // Fetch DB debug to pinpoint empty-DB vs cache issue (visible in UI, also in console)
-      fetch('/api/debug/trends', { cache: 'no-store' }).then(r=>r.json()).then(dbg=>{
-        console.log('[Trend] debug DB:', dbg);
-        const dbgInfo = `DB=${dbg.db_url || 'unknown'} snapshots=${dbg.status?.latest_snapshot || 'none'} trends=${dbg.status?.trends ?? '?'} enabled_src=${dbg.status?.enabled_sources ?? '?'}`;
-        const el = document.getElementById('trendList');
-        if (el) {
-          const extra = el.querySelector('.trend-empty:last-child');
-          if (extra) extra.textContent = `Diagnostic: ${diag} | ${dbgInfo}`;
-        }
-      }).catch(e=>console.warn('[Trend] debug fetch failed', e));
+      // When collecting, the banner already explains what's happening — keep list short
+      if (coll && (coll.state === 'collecting' || coll.state === 'seeding_fallback')) {
+        trendList.innerHTML = `<p class="trend-empty">Trend context will appear here once collection finishes. Your voice/text still works — fresh trends will be added to the next request automatically.</p><p class="trend-empty" style="font-size:11px;opacity:0.7;margin-top:6px;">Diagnostic: ${escapeHtml(diag)} — ${escapeHtml(coll.message || '')}</p>`;
+      } else {
+        trendList.innerHTML = `<p class="trend-empty">Trend context is not available right now. Voice, text and weather keep working normally.</p><p class="trend-empty" style="font-size:11px;opacity:0.7;margin-top:6px;">Diagnostic: ${escapeHtml(diag)} — fetching DB info…</p>`;
+        fetch('/api/debug/trends', { cache: 'no-store' }).then(r=>r.json()).then(dbg=>{
+          console.log('[Trend] debug DB:', dbg);
+          const dbgInfo = `DB=${dbg.db_url || 'unknown'} snapshots=${dbg.status?.latest_snapshot || 'none'} trends=${dbg.status?.trends ?? '?'} enabled_src=${dbg.status?.enabled_sources ?? '?'}`;
+          const el = document.getElementById('trendList');
+          if (el) {
+            const extra = el.querySelector('.trend-empty:last-child');
+            if (extra) extra.textContent = `Diagnostic: ${diag} | ${dbgInfo}`;
+          }
+        }).catch(e=>console.warn('[Trend] debug fetch failed', e));
+      }
       if (trendUnavailableNote) {
         if (trendContext && trendContext.message) {
           trendUnavailableNote.style.display = 'block';
-          trendUnavailableNote.textContent = trendContext.message + ' (If you just restarted the server, wait 2s and click \u21bb Refresh — the snapshot lives in trends.db and is never deleted.)';
+          trendUnavailableNote.textContent = trendContext.message + (coll ? ' — ' + (coll.message || '') : ' (If you just restarted the server, wait 2s and click \u21bb Refresh — the snapshot lives in trends.db and is never deleted.)');
         } else {
           trendUnavailableNote.style.display = 'none';
         }
+      }
+      // Start polling for completion so user never needs to manually refresh
+      if (coll && (coll.state === 'collecting' || coll.state === 'seeding_fallback') && !collectionPollTimer) {
+        pollCollectionStatus();
       }
       return;
     }
@@ -1023,6 +1074,72 @@ document.addEventListener('DOMContentLoaded', () => {
     trendFetchedAt = Date.now();
     if (trendCheckedMeta) {
       trendCheckedMeta.textContent = `Checked: ${new Date(trendFetchedAt).toLocaleTimeString()}`;
+    }
+  }
+
+  function showCollectingBanner(coll) {
+    if (!trendCollectingBanner) return;
+    trendCollectingBanner.style.display = 'block';
+    const state = coll.state || 'collecting';
+    const title = state === 'seeding_fallback' ? 'Seeding demo trends…' : state === 'failed' ? 'Collection paused' : 'Collecting fresh global trends…';
+    if (trendCollectingTitle) trendCollectingTitle.textContent = title;
+    if (trendCollectingStatus) trendCollectingStatus.textContent = state === 'collecting' ? 'Live fetch' : state;
+    const msg = coll.message || 'Contacting Vogue, Harper\'s Bazaar, Who What Wear (respecting robots.txt/TOS, WGSN auto-skipped)…';
+    if (trendCollectingMsg) trendCollectingMsg.textContent = msg;
+    const prog = coll.progress || {};
+    const total = prog.total || 4;
+    const checked = prog.checked || 0;
+    // Fallback: if we have sources counts
+    const src = coll.sources || {};
+    const checkedSrc = src.checked || checked;
+    const pct = total ? Math.min(95, Math.round((checkedSrc / Math.max(1,total)) * 90 + 5)) : (state==='collecting'? 35: 0);
+    if (trendCollectingBar) trendCollectingBar.style.width = pct + '%';
+  }
+  function hideCollectingBanner() {
+    if (trendCollectingBanner) trendCollectingBanner.style.display = 'none';
+  }
+  async function pollCollectionStatus() {
+    if (collectionPollTimer) return; // already polling
+    if (collectionKnownDone) return;
+    try {
+      const r = await fetch('/api/v1/trends/collection/status', { cache: 'no-store' });
+      if (!r.ok) return;
+      const coll = await r.json();
+      console.log('[Trend] collection status:', coll);
+      if (coll.state === 'collecting' || coll.state === 'seeding_fallback') {
+        showCollectingBanner(coll);
+        // Keep pillar as collecting
+        if (trendStatusPill && !hasTrends(latestTrendContext)) {
+          trendStatusPill.textContent = 'Collecting…';
+          trendStatusPill.className = 'weather-status-pill unavailable';
+        }
+        collectionPollTimer = setTimeout(()=>{ collectionPollTimer=null; pollCollectionStatus(); }, 2000);
+      } else if (coll.state === 'done') {
+        hideCollectingBanner();
+        collectionKnownDone = true;
+        console.log('[Trend] collection done, reloading trends');
+        loadTrendContext(5);
+        // Also update pill to show completion hint briefly
+        if (trendCollectingMsg) trendCollectingMsg.textContent = coll.message || 'Done';
+        if (collectionPollTimer) { clearTimeout(collectionPollTimer); collectionPollTimer=null; }
+        // After 5s, allow re-poll if user triggers re-collect
+        setTimeout(()=>{ collectionKnownDone=false; }, 15000);
+      } else if (coll.state === 'failed') {
+        showCollectingBanner(coll);
+        if (collectionPollTimer) { clearTimeout(collectionPollTimer); collectionPollTimer=null; }
+      } else {
+        // idle — nothing to do, hide banner if we previously showed it
+        if (coll.state === 'idle' && latestTrendContext && hasTrends(latestTrendContext)) {
+          hideCollectingBanner();
+        } else if (coll.state === 'idle' && !hasTrends(latestTrendContext)) {
+          // idle + no snapshot means collection never started — show banner as prompt
+          // (this happens on first load before lifespan fires)
+          showCollectingBanner({ state: 'collecting', message: 'Starting collection from global sources…', progress: {checked:0, total:4}, sources:{checked:0} });
+          collectionPollTimer = setTimeout(()=>{ collectionPollTimer=null; pollCollectionStatus(); }, 1500);
+        }
+      }
+    } catch (e) {
+      console.warn('[Trend] collection status fetch failed', e);
     }
   }
 
