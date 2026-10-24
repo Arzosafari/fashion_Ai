@@ -1,0 +1,32 @@
+[
+  {
+    "canonical_name": "wide_leg_bottom",
+    "category": "silhouette",
+    "is_synthetic": true,
+    "evidence": [
+      {"source_id": "vogue", "title": "The Wide-Leg Takeover", "url": "https://www.vogue.com/article/wide-leg", "date": "2026-09-18"},
+      {"source_id": "digikala_mag", "title": "شلوار گشاد ترند امسال", "url": "https://www.digikala.com/mag/wide-leg", "date": "2026-09-19"},
+      {"source_id": "banimode_mag", "title": "ست مانتو با شلوار گشاد", "url": "https://www.banimode.com/blog/wide-leg", "date": "2026-09-17"},
+      {"source_id": "modeworld", "title": "شلوار گشاد در هفته مد نیویورک", "url": "https://modeworld.ir/wide-leg", "date": "2026-09-16"}
+    ],
+    "global_score": 0.78,
+    "iran_relevance": 0.71,
+    "current_score": 0.55,
+    "lifecycle": "rising",
+    "seasonal_relevance": 1.1
+  },
+  {
+    "canonical_name": "manteau_wide_leg",
+    "category": "outfit_combination",
+    "is_synthetic": true,
+    "evidence": [
+      {"source_id": "banimode_mag", "title": "مانتو با شلوار گشاد جین", "url": "https://www.banimode.com/blog/manteau-wide", "date": "2026-09-17"},
+      {"source_id": "modeworld", "title": "ترکیب مانتو و شلوار گشاد", "url": "https://modeworld.ir/manteau-wide", "date": "2026-09-15"}
+    ],
+    "global_score": 0.65,
+    "iran_relevance": 0.85,
+    "current_score": 0.52,
+    "lifecycle": "emerging",
+    "seasonal_relevance": 1.2
+  }
+]

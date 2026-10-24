@@ -1,0 +1,295 @@
+# Canonical taxonomy — GLOBAL fashion, extensible
+# For Global Trend Module: categories align with spec (color, silhouette, garment, material, pattern, accessory, styling, aesthetic, footwear, outerwear, occasion, macro_trend, micro_trend)
+# Preserved Persian aliases for backward compat but primary is English global terminology.
+entities:
+  # Garments (global)
+  - canonical: blazer
+    category: garment
+    aliases: ["blazer", "tailored blazer", "کت"]
+    global_relevance: 0.9
+    iran_compatibility: 0.9
+  - canonical: dress
+    category: garment
+    aliases: ["dress", "پیراهن", "maxi dress", "midi dress"]
+    global_relevance: 0.9
+    iran_compatibility: 0.7
+  - canonical: coat
+    category: outerwear
+    aliases: ["coat", "overcoat", "پالتو", "trench coat"]
+    global_relevance: 0.85
+  - canonical: elevated_bomber_jacket
+    category: outerwear
+    aliases: ["elevated bomber jacket", "bomber jacket", "bomber"]
+    global_relevance: 0.85
+  - canonical: jeans
+    category: garment
+    aliases: ["jeans", "denim pants", "شلوار جین", "straight jeans"]
+    global_relevance: 0.9
+  - canonical: tailored_suit
+    category: garment
+    aliases: ["tailored suit", "power suit", "suits", "کت شلوار"]
+    global_relevance: 0.9
+  - canonical: manteau
+    category: garment
+    aliases: ["manteau", "مانتو"]
+    global_relevance: 0.5
+    iran_compatibility: 1.0
+  - canonical: hijab
+    category: accessory
+    aliases: ["hijab", "حجاب", "scarf"]
+    global_relevance: 0.5
+    iran_compatibility: 1.0
+
+  # Global micro/macro trend examples from spec
+  - canonical: oversized_floral_brooches
+    category: accessory
+    aliases: ["oversized floral brooches", "floral brooch", "floral brooches", "oversized brooch"]
+    global_relevance: 0.85
+  - canonical: animal_print
+    category: pattern
+    aliases: ["animal print", "animal prints", "leopard print", "zebra print"]
+    global_relevance: 0.9
+  - canonical: dramatic_bows
+    category: styling
+    aliases: ["dramatic bows", "oversized bows", "bow details", "bow"]
+    global_relevance: 0.85
+  - canonical: sculptural_ruffles
+    category: styling
+    aliases: ["sculptural ruffles", "ruffles", "dramatic ruffles"]
+    global_relevance: 0.85
+  - canonical: dark_florals
+    category: pattern
+    aliases: ["dark florals", "moody florals", "dark floral"]
+    global_relevance: 0.85
+  - canonical: futuristic_fabrics
+    category: material
+    aliases: ["futuristic fabrics", "futuristic fabric", "tech fabrics", "technical fabrics"]
+    global_relevance: 0.8
+  - canonical: oversized_blanket_plaids
+    category: pattern
+    aliases: ["oversized blanket plaids", "blanket plaid", "oversized plaid", "plaid"]
+    global_relevance: 0.85
+  - canonical: red_tailoring
+    category: styling
+    aliases: ["red tailoring", "scarlet tailoring", "red tailored suits", "bold red suiting", "red power suits", "scarlet suiting", "red suiting", "dramatic red tailoring"]
+    global_relevance: 0.95
+  - canonical: statement_belts
+    category: accessory
+    aliases: ["statement belts", "statement belt", "wide belts", "bold belts"]
+    global_relevance: 0.9
+  - canonical: brown_suede
+    category: material
+    aliases: ["brown suede", "suede", "chocolate suede"]
+    global_relevance: 0.85
+
+  # Colors
+  - canonical: red
+    category: color
+    aliases: ["red", "scarlet", "crimson", "ruby", "قرمز"]
+    global_relevance: 0.9
+  - canonical: scarlet
+    category: color
+    aliases: ["scarlet", "scarlet red"]
+    global_relevance: 0.9
+  - canonical: earth_tone_palette
+    category: color
+    aliases: ["earth tones", "earthy colors", "warm neutral palette"]
+    global_relevance: 0.85
+  - canonical: pastel_palette
+    category: color
+    aliases: ["pastel", "pastel colors"]
+    global_relevance: 0.8
+  - canonical: black
+    category: color
+    aliases: ["black"]
+    global_relevance: 0.9
+  - canonical: beige
+    category: color
+    aliases: ["beige", "cream", "ecru"]
+    global_relevance: 0.85
+
+  # Patterns
+  - canonical: striped
+    category: pattern
+    aliases: ["striped", "stripes"]
+    global_relevance: 0.8
+  - canonical: floral
+    category: pattern
+    aliases: ["floral", "florals"]
+    global_relevance: 0.8
+
+  # Silhouettes
+  - canonical: wide_leg_bottom
+    category: silhouette
+    aliases: ["wide leg trousers", "wide-leg pants", "baggy trousers", "شلوار گشاد", "شلوار بگ", "wide leg jeans", "palazzo pants", "wide leg"]
+    global_relevance: 0.9
+    iran_compatibility: 0.9
+  - canonical: cropped
+    category: silhouette
+    aliases: ["cropped", "کراپ", "کوتاه", "crop", "cropped jackets"]
+    global_relevance: 0.75
+  - canonical: fitted
+    category: silhouette
+    aliases: ["fitted", "جذب", "اسلیم", "slim fit", "bodycon"]
+    global_relevance: 0.75
+  - canonical: oversized_silhouette
+    category: silhouette
+    aliases: ["oversized silhouette", "oversized", "boxy", "اور سایز"]
+    global_relevance: 0.85
+
+  # Materials
+  - canonical: linen
+    category: material
+    aliases: ["linen"]
+    global_relevance: 0.85
+    ideal_temp_range: {min: 20, max: 35}
+  - canonical: wool
+    category: material
+    aliases: ["wool", "wool blend"]
+    global_relevance: 0.85
+    ideal_temp_range: {min: -5, max: 15}
+  - canonical: denim
+    category: material
+    aliases: ["denim"]
+    global_relevance: 0.9
+  - canonical: leather
+    category: material
+    aliases: ["leather", "faux leather"]
+    global_relevance: 0.85
+  - canonical: sheer_fabric
+    category: material
+    aliases: ["sheer", "sheer fabric", "organza", "chiffon"]
+    global_relevance: 0.8
+
+  # Footwear
+  - canonical: sneakers
+    category: footwear
+    aliases: ["sneakers", "sneaker", "trainers"]
+    global_relevance: 0.9
+  - canonical: ballet_flats
+    category: footwear
+    aliases: ["ballet flats", "ballet flat", "ballerinas"]
+    global_relevance: 0.85
+  - canonical: loafers
+    category: footwear
+    aliases: ["loafers", "loafer"]
+    global_relevance: 0.85
+  - canonical: boots
+    category: footwear
+    aliases: ["boots", "ankle boots", "knee-high boots"]
+    global_relevance: 0.9
+
+  # Accessories
+  - canonical: handbag
+    category: accessory
+    aliases: ["handbag", "bag", "totes", "clutch"]
+    global_relevance: 0.9
+
+  # Styles / Aesthetics
+  - canonical: minimalist
+    category: aesthetic
+    aliases: ["minimalist", "minimalism", "quiet luxury"]
+    global_relevance: 0.85
+  - canonical: oversized_style
+    category: styling
+    aliases: ["oversized", "oversized style", "exaggerated proportions"]
+    global_relevance: 0.85
+  - canonical: classic
+    category: aesthetic
+    aliases: ["classic", "timeless"]
+    global_relevance: 0.85
+  - canonical: streetwear
+    category: aesthetic
+    aliases: ["streetwear", "street style"]
+    global_relevance: 0.85
+  - canonical: boho_aesthetic
+    category: aesthetic
+    aliases: ["boho", "bohemian", "boho chic"]
+    global_relevance: 0.8
+  - canonical: y2k_aesthetic
+    category: aesthetic
+    aliases: ["y2k", "y2k aesthetic"]
+    global_relevance: 0.8
+
+  # Occasion
+  - canonical: evening_wear
+    category: occasion
+    aliases: ["evening wear", "evening gowns", "cocktail"]
+    global_relevance: 0.85
+  - canonical: workwear
+    category: occasion
+    aliases: ["workwear", "office wear", "work wear"]
+    global_relevance: 0.85
+
+  # Macro / Micro trends
+  - canonical: macro_trend_sustainability
+    category: macro_trend
+    aliases: ["sustainable fashion", "eco fashion", "circular fashion"]
+    global_relevance: 0.9
+  - canonical: micro_trend_bow
+    category: micro_trend
+    aliases: ["bow trend", "bow micro trend"]
+    global_relevance: 0.8
+
+  # Designers (global)
+  - canonical: chanel
+    category: designer
+    aliases: ["chanel", "香奈儿"]
+    global_relevance: 0.9
+  - canonical: dior
+    category: designer
+    aliases: ["dior", "christian dior"]
+    global_relevance: 0.9
+  - canonical: gucci
+    category: designer
+    aliases: ["gucci"]
+    global_relevance: 0.9
+  - canonical: prada
+    category: designer
+    aliases: ["prada"]
+    global_relevance: 0.9
+  - canonical: balenciaga
+    category: designer
+    aliases: ["balenciaga"]
+    global_relevance: 0.85
+  - canonical: saint_laurent
+    category: designer
+    aliases: ["saint laurent", "ysl", "saint-laurent"]
+    global_relevance: 0.85
+  - canonical: versace
+    category: designer
+    aliases: ["versace"]
+    global_relevance: 0.85
+  - canonical: valentino
+    category: designer
+    aliases: ["valentino"]
+    global_relevance: 0.85
+
+  # Backward-compat Iranian outfit combos & styles (kept for history, not used for global clustering)
+  - canonical: manteau_wide_leg
+    category: outfit_combination
+    aliases: ["manteau + wide leg pants", "مانتو با شلوار گشاد", "wide leg + manteau"]
+    global_relevance: 0.5
+    iran_compatibility: 0.95
+  - canonical: blazer_jeans
+    category: outfit_combination
+    aliases: ["blazer + jeans", "کت با جین"]
+    global_relevance: 0.5
+    iran_compatibility: 0.85
+  - canonical: modest_fashion
+    category: aesthetic
+    aliases: ["modest fashion", "محجبه", "پوشیده"]
+    global_relevance: 0.5
+    iran_compatibility: 1.0
+  - canonical: plain
+    category: pattern
+    aliases: ["plain", "ساده"]
+    global_relevance: 0.5
+    iran_compatibility: 0.9
+
+# Normalization thresholds — configurable via env TREND_SIMILARITY_THRESHOLD
+normalization:
+  auto_threshold: 0.58
+  review_threshold: 0.45
+  embedding_model: "paraphrase-multilingual-MiniLM-L12-v2"
+  similarity_threshold: 0.58

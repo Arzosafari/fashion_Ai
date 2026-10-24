@@ -1,0 +1,132 @@
+# Global trend sources — 4 enabled (Vogue, Harper's Bazaar, Who What Wear, WGSN)
+# Iranian sources removed per global migration (trend_scope=global)
+# All weights configurable; authority_weight influences G.
+# See IRANIAN_NETWORK_DIAGNOSIS_REPORT.md for removed Iranian sources archive.
+sources:
+  - source_id: vogue
+    name: "Vogue"
+    source_type: editorial
+    country: US
+    region: global
+    scope: global
+    language: en
+    authority_weight: 0.95
+    freshness_weight: 0.85
+    accessibility: public
+    extraction_method: sitemap_rss
+    update_frequency: "6h"
+    priority: high
+    enabled: true
+    robots_status: "allowed_articles"
+    sitemap_url: "https://www.vogue.com/sitemap.xml"
+    rss_url: "https://www.vogue.com/feed/rss"
+    selectors_need_verification: false
+
+  - source_id: harpers_bazaar
+    name: "Harper's Bazaar"
+    source_type: editorial
+    country: US
+    region: global
+    scope: global
+    language: en
+    authority_weight: 0.90
+    freshness_weight: 0.80
+    accessibility: public
+    extraction_method: sitemap
+    update_frequency: "6h"
+    priority: high
+    enabled: true
+    robots_status: "allowed_articles"
+    sitemap_url: "https://www.harpersbazaar.com/sitemap_index.xml"
+    rss_url: null
+    notes: "Verified 2026-09-29: robots allows *, sitemap_index with brand-tag/people-tag/content-tag including fashion week/trend reports"
+
+  - source_id: whowhatwear
+    name: "Who What Wear"
+    source_type: editorial
+    country: US
+    region: global
+    scope: global
+    language: en
+    authority_weight: 0.75
+    freshness_weight: 0.85
+    accessibility: public
+    extraction_method: sitemap
+    update_frequency: "6h"
+    priority: medium
+    enabled: true
+    robots_status: "allowed_articles"
+    sitemap_url: "https://www.whowhatwear.com/sitemap.xml"
+    rss_url: null
+    notes: "Verified 2026-09-29: robots allows *, sitemap.xml indexes 200+ monthly archives + sitemap_news.xml for trends/micro-trends"
+
+  - source_id: wgsn
+    name: "WGSN"
+    source_type: forecasting
+    country: GB
+    region: global
+    scope: global
+    language: en
+    authority_weight: 0.95
+    freshness_weight: 0.70
+    accessibility: restricted
+    extraction_method: sitemap
+    update_frequency: "24h"
+    priority: high
+    enabled: true
+    robots_status: "disallow_all_for_star"
+    sitemap_url: "https://www.wgsn.com/sitemap.xml"
+    rss_url: null
+    notes: "Professional forecasting; robots.txt blocks * (Disallow: /) except allowlisted bots. System must gracefully skip 403/paywall — do NOT bypass. Authority high when legally retrievable."
+
+  # Disabled / candidate global sources (kept for extensibility)
+  - source_id: business_of_fashion
+    name: "Business of Fashion"
+    source_type: editorial
+    country: GB
+    region: global
+    scope: global
+    language: en
+    authority_weight: 0.85
+    extraction_method: sitemap
+    enabled: false
+    sitemap_url: "https://www.businessoffashion.com/sitemap.xml"
+    notes: "Candidate global source"
+
+  - source_id: elle
+    name: "ELLE"
+    source_type: editorial
+    country: US
+    region: global
+    scope: global
+    language: en
+    authority_weight: 0.80
+    extraction_method: sitemap
+    enabled: false
+    sitemap_url: "https://www.elle.com/sitemap.xml"
+
+  - source_id: google_trends
+    name: "Google Trends (supplementary)"
+    source_type: search_signal
+    country: null
+    region: global
+    scope: global
+    language: multi
+    authority_weight: 0.60
+    extraction_method: api_trendspy
+    update_frequency: "24h"
+    enabled: false
+    notes: "Pytrends archived 2025-04-17; geo global"
+
+  - source_id: pinterest_trends
+    name: "Pinterest Trends"
+    source_type: visual_search
+    country: null
+    region: global
+    scope: global
+    language: en
+    authority_weight: 0.60
+    extraction_method: official_api_v5_or_apify
+    update_frequency: "24h"
+    enabled: false
+    notes: "Requires Standard access"
