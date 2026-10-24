@@ -272,6 +272,11 @@ def create_app(
         path = request.url.path
         if path == "/" or path.endswith((".html", ".js", ".css")):
             response.headers["Cache-Control"] = "no-cache, must-revalidate"
+        elif path.startswith("/api/"):
+            # Trend/weather context is live data derived from the database.
+            # Never let a browser or an intermediate proxy replay a stale
+            # snapshot (e.g. an old "no_snapshot" answer).
+            response.headers["Cache-Control"] = "no-store, max-age=0"
         return response
 
     # Global Fashion Trend API (/api/v1/trends/*, /api/v1/sources/*)

@@ -1162,3 +1162,18 @@ body {
   letter-spacing: 0.6px;
   color: var(--text-faint);
 }
+
+.trend-refresh-btn {
+  font-size: 10px;
+  padding: 3px 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(230, 197, 100, 0.35);
+  color: var(--gold-primary);
+  background: transparent;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.trend-refresh-btn:hover {
+  background: rgba(230, 197, 100, 0.12);
+}

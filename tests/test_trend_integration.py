@@ -424,3 +424,25 @@ async def test_collection_to_snapshot_end_to_end_offline(temp_trend_db):
 
             count = (await session.execute(select(func.count()).select_from(TrendSnapshot))).scalar()
             assert count == 1
+
+
+def test_api_responses_are_not_cacheable(temp_trend_db):
+    """Trend context is live data: no browser/proxy may replay a stale answer.
+
+    A stale cached ``{"status": "no_snapshot"}`` body was observed in the UI while
+    the database did contain snapshots, so every ``/api`` response must carry
+    ``Cache-Control: no-store`` (static assets keep their existing policy).
+    """
+    _seed()
+    from fashion_stt.server import create_app
+
+    app = create_app(weather_service=_StubWeatherService())
+    with TestClient(app) as client:
+        for path in ("/api/health", "/api/v1/trends/context?limit=3", "/api/v1/trends/current?limit=1"):
+            response = client.get(path)
+            assert response.status_code == 200, path
+            assert "no-store" in response.headers.get("cache-control", ""), path
+
+        static = client.get("/")
+        assert static.status_code == 200
+        assert "no-cache" in static.headers.get("cache-control", "")

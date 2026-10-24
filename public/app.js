@@ -71,6 +71,8 @@ document.addEventListener('DOMContentLoaded', () => {
   const trendScopeMeta = document.getElementById('trendScopeMeta');
   const trendList = document.getElementById('trendList');
   const trendUnavailableNote = document.getElementById('trendUnavailableNote');
+  const trendCheckedMeta = document.getElementById('trendCheckedMeta');
+  const trendRefreshBtn = document.getElementById('trendRefreshBtn');
   const jsonOutput = document.getElementById('jsonOutput');
   const copyJsonBtn = document.getElementById('copyJsonBtn');
   const ttsAudioPlayer = document.getElementById('ttsAudioPlayer');
@@ -91,6 +93,8 @@ document.addEventListener('DOMContentLoaded', () => {
     combined: null
   };
   let latestTrendContext = null;
+  let trendFetchedAt = 0;
+  let trendLoading = false;
 
   // Initialize Canvas
   function resizeCanvas() {
@@ -519,6 +523,21 @@ document.addEventListener('DOMContentLoaded', () => {
   // Load the latest global trend snapshot immediately (independent of user input).
   loadTrendContext(5);
 
+  if (trendRefreshBtn) {
+    trendRefreshBtn.addEventListener('click', (event) => {
+      event.preventDefault();
+      loadTrendContext(5);
+    });
+  }
+
+  // Re-check the snapshot when the user returns to the tab (data may have changed,
+  // and the first load may have happened while the server was restarting).
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && Date.now() - trendFetchedAt > 60000) {
+      loadTrendContext(5);
+    }
+  });
+
   if (locationSettingInput) {
     let locDebounce = null;
     locationSettingInput.addEventListener('keydown', (e) => {
@@ -924,7 +943,9 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!available) {
       const status = trendContext ? trendContext.status : null;
       trendStatusPill.className = 'weather-status-pill unavailable';
-      trendStatusPill.textContent = status === 'no_snapshot' ? 'No Snapshot Yet' : 'Unavailable';
+      trendStatusPill.textContent = status === 'no_snapshot'
+        ? 'No Snapshot Yet'
+        : (status && status !== 'unavailable' ? `Unavailable (${status})` : 'Unavailable');
       if (trendSnapshotMeta) trendSnapshotMeta.textContent = 'Snapshot: \u2014';
       if (trendSeasonMeta) trendSeasonMeta.textContent = 'Season: \u2014';
       if (trendScopeMeta) trendScopeMeta.textContent = 'Scope: global';
@@ -971,13 +992,75 @@ document.addEventListener('DOMContentLoaded', () => {
     }).join('');
   }
 
-  async function loadTrendContext(limit = 5) {
+  function markTrendChecked() {
+    trendFetchedAt = Date.now();
+    if (trendCheckedMeta) {
+      trendCheckedMeta.textContent = `Checked: ${new Date(trendFetchedAt).toLocaleTimeString()}`;
+    }
+  }
+
+  function hasTrends(payload) {
+    return !!(payload && payload.available && Array.isArray(payload.trends) && payload.trends.length);
+  }
+
+  // The /context endpoint is the canonical source; the snapshot endpoint is a
+  // secondary source used only when the compact context reports nothing, so a
+  // single anomalous response can never leave the card stuck on "No Snapshot".
+  async function fetchTrendPayload(limit, bust) {
+    const res = await fetch(`/api/v1/trends/context?limit=${limit}&_=${bust}`, { cache: 'no-store' });
+    if (!res.ok) throw new Error(`context status ${res.status}`);
+    const body = await res.json();
+    if (hasTrends(body)) return body;
+
     try {
-      const res = await fetch(`/api/v1/trends/context?limit=${limit}`);
-      if (!res.ok) throw new Error(`status ${res.status}`);
-      renderTrendContext(await res.json());
+      const alt = await fetch(`/api/v1/trends/current?limit=${limit}&_=${bust}`, { cache: 'no-store' });
+      if (alt.ok) {
+        const snap = await alt.json();
+        if (snap && Array.isArray(snap.trends) && snap.trends.length) {
+          return {
+            available: true,
+            status: 'ok',
+            message: null,
+            snapshot_time_utc: snap.snapshot_time_utc,
+            season: snap.season,
+            trends: snap.trends.slice(0, limit),
+            meta: snap.meta || {}
+          };
+        }
+      }
+    } catch (fallbackErr) {
+      console.warn('Trend snapshot fallback failed:', fallbackErr);
+    }
+    return body;
+  }
+
+  async function loadTrendContext(limit = 5, attempt = 0) {
+    if (trendLoading && attempt === 0) return;
+    if (attempt === 0) {
+      trendLoading = true;
+      if (trendStatusPill && !hasTrends(latestTrendContext)) {
+        trendStatusPill.className = 'weather-status-pill unavailable';
+        trendStatusPill.textContent = 'Loading...';
+      }
+    }
+    try {
+      const payload = await fetchTrendPayload(limit, Date.now());
+      markTrendChecked();
+      renderTrendContext(payload);
+      trendLoading = false;
     } catch (err) {
+      trendLoading = false;
+      if (attempt < 2) {
+        // transient (e.g. server restarting) - retry before showing a failure
+        if (trendStatusPill) {
+          trendStatusPill.className = 'weather-status-pill unavailable';
+          trendStatusPill.textContent = 'Retrying...';
+        }
+        setTimeout(() => loadTrendContext(limit, attempt + 1), 700 * (attempt + 1));
+        return;
+      }
       console.warn('Trend context unavailable:', err);
+      markTrendChecked();
       renderTrendContext({ available: false, status: 'unavailable', message: 'Trend API is not reachable.' });
     }
   }
