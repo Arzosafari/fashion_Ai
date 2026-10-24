@@ -337,7 +337,7 @@ def create_app(
         return {
             "status": "healthy",
             "module": "Fashion AI — Request Understanding, Weather & Global Trend Context Module",
-            "version": "2.2.0",
+            "version": "2.3.0",
             "language": "en",
             "model": "vosk-model-small-en-us-0.15",
             "weather_provider": "open-meteo",
