@@ -83,7 +83,8 @@ document.addEventListener('DOMContentLoaded', () => {
   let isProcessing = false;
   let ttsEnabled = true;
   let rawVoiceTranscript = '';
-  let canvasCtx = visualizerCanvas.getContext('2d');
+  let canvasCtx = null;
+  try { canvasCtx = visualizerCanvas.getContext('2d'); } catch (e) { canvasCtx = null; }
   let currentAudioLevel = 0;
   let sttInstance = null;
   let activeJsonTab = 'request';
@@ -98,10 +99,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Initialize Canvas
   function resizeCanvas() {
-    visualizerCanvas.width = visualizerCanvas.parentElement.clientWidth || 460;
-    visualizerCanvas.height = 48;
+    try {
+      if (!visualizerCanvas || !visualizerCanvas.parentElement) return;
+      visualizerCanvas.width = visualizerCanvas.parentElement.clientWidth || 460;
+      visualizerCanvas.height = 48;
+    } catch (e) {}
   }
-  resizeCanvas();
+  try { resizeCanvas(); } catch (e) {}
   window.addEventListener('resize', resizeCanvas);
 
   // New Tab Handler
@@ -225,9 +229,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Waveform Visualizer Loop
   function drawVisualizer() {
-    const w = visualizerCanvas.width;
-    const h = visualizerCanvas.height;
-    canvasCtx.clearRect(0, 0, w, h);
+    try {
+      if (!canvasCtx || !visualizerCanvas) { requestAnimationFrame(drawVisualizer); return; }
+      const w = visualizerCanvas.width;
+      const h = visualizerCanvas.height;
+      if (!w || !h) { requestAnimationFrame(drawVisualizer); return; }
+      canvasCtx.clearRect(0, 0, w, h);
 
     const numBars = 36;
     const barWidth = (w / numBars) - 2;
@@ -255,10 +262,14 @@ document.addEventListener('DOMContentLoaded', () => {
       canvasCtx.fill();
     }
 
-    currentAudioLevel *= 0.88;
-    requestAnimationFrame(drawVisualizer);
+      currentAudioLevel *= 0.88;
+      requestAnimationFrame(drawVisualizer);
+    } catch (vizErr) {
+      console.warn('Visualizer error:', vizErr);
+      requestAnimationFrame(drawVisualizer);
+    }
   }
-  drawVisualizer();
+  try { drawVisualizer(); } catch (e) { console.warn('Visualizer init failed:', e); }
 
   // Mic Button Toggle
   micBtn.addEventListener('click', () => {
@@ -936,9 +947,12 @@ document.addEventListener('DOMContentLoaded', () => {
   // Global Fashion Trend Context (independent module, never blocks the app)
   // ---------------------------------------------------------------------
   function renderTrendContext(trendContext) {
-    if (!trendStatusPill || !trendList) return;
+    if (!trendStatusPill || !trendList) {
+      console.warn('Trend render: missing DOM elements', { hasPill: !!trendStatusPill, hasList: !!trendList });
+      return;
+    }
     latestTrendContext = trendContext || null;
-
+    console.log('[Trend] render input:', JSON.stringify(trendContext, null, 2));
     const available = !!(trendContext && trendContext.available && Array.isArray(trendContext.trends) && trendContext.trends.length);
     if (!available) {
       const status = trendContext ? trendContext.status : null;
@@ -949,11 +963,14 @@ document.addEventListener('DOMContentLoaded', () => {
       if (trendSnapshotMeta) trendSnapshotMeta.textContent = 'Snapshot: \u2014';
       if (trendSeasonMeta) trendSeasonMeta.textContent = 'Season: \u2014';
       if (trendScopeMeta) trendScopeMeta.textContent = 'Scope: global';
-      trendList.innerHTML = '<p class="trend-empty">Trend context is not available right now. Voice, text and weather keep working normally.</p>';
+      const diag = trendContext
+        ? `status=${trendContext.status || 'unknown'} available=${trendContext.available} trends=${(trendContext.trends||[]).length} snapshot=${trendContext.snapshot_time_utc || 'none'}${trendContext.message ? ' \u2014 ' + trendContext.message : ''}`
+        : 'no payload (network error)';
+      trendList.innerHTML = `<p class="trend-empty">Trend context is not available right now. Voice, text and weather keep working normally.</p><p class="trend-empty" style="font-size:11px;opacity:0.7;margin-top:6px;">Diagnostic: ${escapeHtml(diag)}</p>`;
       if (trendUnavailableNote) {
         if (trendContext && trendContext.message) {
           trendUnavailableNote.style.display = 'block';
-          trendUnavailableNote.textContent = trendContext.message;
+          trendUnavailableNote.textContent = trendContext.message + ' (If you just restarted the server, wait 2s and click \u21bb Refresh — the snapshot lives in trends.db and is never deleted.)';
         } else {
           trendUnavailableNote.style.display = 'none';
         }
@@ -1010,12 +1027,14 @@ document.addEventListener('DOMContentLoaded', () => {
     const res = await fetch(`/api/v1/trends/context?limit=${limit}&_=${bust}`, { cache: 'no-store' });
     if (!res.ok) throw new Error(`context status ${res.status}`);
     const body = await res.json();
+    console.log('[Trend] /context payload:', JSON.stringify(body).slice(0, 400));
     if (hasTrends(body)) return body;
 
     try {
       const alt = await fetch(`/api/v1/trends/current?limit=${limit}&_=${bust}`, { cache: 'no-store' });
       if (alt.ok) {
         const snap = await alt.json();
+        console.log('[Trend] /current fallback payload:', JSON.stringify(snap).slice(0, 400));
         if (snap && Array.isArray(snap.trends) && snap.trends.length) {
           return {
             available: true,
