@@ -22,7 +22,7 @@ from trend_system.database.session import get_async_sessionmaker, init_db
 
 logger = logging.getLogger(__name__)
 
-_BOOTSTRAPPED = False
+_BOOTSTRAPPED_URLS: set[str] = set()
 
 
 def _source_kwargs(src: dict) -> dict:
@@ -102,8 +102,10 @@ async def seed_reference_data(session, force: bool = False) -> dict:
 
 async def bootstrap_trend_module(force_seed: bool = False) -> dict:
     """Initialise schema + seed reference data once per process."""
-    global _BOOTSTRAPPED
-    if _BOOTSTRAPPED and not force_seed:
+    from trend_system.database.session import get_database_url
+
+    cache_key = get_database_url()
+    if cache_key in _BOOTSTRAPPED_URLS and not force_seed:
         return {"status": "already_initialized"}
 
     await init_db()
@@ -112,7 +114,7 @@ async def bootstrap_trend_module(force_seed: bool = False) -> dict:
         snapshot = (
             await session.execute(select(TrendSnapshot).order_by(TrendSnapshot.snapshot_time_utc.desc()).limit(1))
         ).scalars().first()
-    _BOOTSTRAPPED = True
+    _BOOTSTRAPPED_URLS.add(cache_key)
     info = {
         "status": "initialized",
         "seeded": seeded,
@@ -124,4 +126,4 @@ async def bootstrap_trend_module(force_seed: bool = False) -> dict:
 
 def reset_bootstrap_flag() -> None:
     global _BOOTSTRAPPED
-    _BOOTSTRAPPED = False
+    _BOOTSTRAPPED_URLS: set[str] = set()

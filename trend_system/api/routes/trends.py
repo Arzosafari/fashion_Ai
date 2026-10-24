@@ -11,7 +11,6 @@ from trend_system.api.schemas import (
     TrendsSnapshotResponse,
 )
 from trend_system.database.models import Trend, TrendSnapshot, TrendHistory, TrendEvidence
-from trend_system.utils.calendar import to_jalali_dict
 
 router = APIRouter(
     prefix="/trends",
@@ -43,8 +42,10 @@ async def get_current(
         filtered = [t for t in filtered if t.get("iran_relevance",0) >= 0.5 or t.get("trend_scope")=="iranian"]
     elif region == "global" or trend_scope == "global":
         filtered = [t for t in filtered if t.get("trend_scope","global")=="global" or t.get("global_strength",0) >= 0]
-    if season:
-        pass
+    if season and (snap.season or "").lower() != season.lower():
+        # The snapshot belongs to one season; report it as-is instead of
+        # pretending another season's evidence exists.
+        filtered = filtered
     filtered = filtered[:limit]
     return {
         "snapshot_time_utc": snap.snapshot_time_utc.isoformat(),
@@ -61,8 +62,9 @@ async def refresh(limit: int = 10, session: AsyncSession = Depends(get_session))
     try:
         from scripts.run_collector import live_run
         await live_run(limit_per_source=limit, exclude_synthetic=True)
-    except Exception:
-        pass
+    except Exception as exc:  # network/dependency failure must not break refresh
+        import logging
+        logging.getLogger(__name__).warning("On-demand collection skipped: %s", exc)
     snap = await materialize_snapshot(session, datetime.now(timezone.utc), exclude_synthetic=True)
     return {"refreshed_at": datetime.now(timezone.utc).isoformat(), "total": len(snap), "trends": snap[:limit]}
 
@@ -85,9 +87,14 @@ async def for_recommendation(
     return {
         "snapshot_time_utc": snap.snapshot_time_utc.isoformat(),
         "snapshot_time_jalali": snap.snapshot_time_jalali,
-        "season": season or snap.season,
+        # Always report the snapshot's own season: a different requested season
+        # is flagged (never relabelled) because trends carry no per-season label.
+        "season": snap.season,
         "trends": trends[:limit],
-        "meta": {"scoring_version": snap.scoring_version}
+        "meta": {
+            "scoring_version": snap.scoring_version,
+            "season_matches_snapshot": (not season) or season.lower() == (snap.season or "").lower(),
+        }
     }
 
 @router.get("")

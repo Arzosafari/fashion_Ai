@@ -87,6 +87,19 @@ TREND_SCHEDULER_ENABLED=1 python scripts/schedule_trends.py
 | GET  | `/api/catalog`, `/api/extract`, `/api/tts` | Existing utilities |
 | GET  | `/api/v1/trends/*`, `/api/v1/sources/*` | Global trend module (see below) |
 
+### Web UI
+
+`public/` (served at `/`) keeps the existing voice/text conversation panel and
+adds two independent context cards in the inspector on the right:
+
+* **Environmental Weather Context** — unchanged Open-Meteo module.
+* **Global Fashion Trend Context** — populated from
+  `GET /api/v1/trends/context?limit=5` on page load and refreshed from
+  `recommendation_context.trend_context` after each request. It shows the
+  snapshot date/season and the ranked trends with score bars. If the trend
+  module is disabled or the snapshot is missing, the card shows an
+  "Unavailable"/"No Snapshot Yet" state and the rest of the UI keeps working.
+
 ### Trend module
 
 | Method | Path | Description |

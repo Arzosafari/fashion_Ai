@@ -1,9 +1,8 @@
 from __future__ import annotations
-import abc
 import hashlib
 import json
 import logging
-from typing import Protocol, Dict, Any, Optional
+from typing import Protocol, Dict, Any
 
 logger = logging.getLogger(__name__)
 

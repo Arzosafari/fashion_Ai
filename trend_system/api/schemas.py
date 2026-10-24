@@ -1,7 +1,6 @@
 from __future__ import annotations
 from pydantic import BaseModel, ConfigDict, Field
-from typing import List, Optional, Any
-from datetime import datetime
+from typing import List
 
 class TrendComponent(BaseModel):
     G: float

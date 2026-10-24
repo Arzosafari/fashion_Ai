@@ -2,7 +2,6 @@ from __future__ import annotations
 import re
 import hashlib
 from datetime import datetime, timezone
-from typing import Optional
 
 import dateparser
 from langdetect import detect, DetectorFactory

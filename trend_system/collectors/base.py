@@ -1,12 +1,9 @@
 from __future__ import annotations
 import abc
-import hashlib
 import logging
-from datetime import datetime, timezone
 from dataclasses import dataclass, field
 
 import httpx
-from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 from trend_system.utils.robots import is_allowed_by_robots
 

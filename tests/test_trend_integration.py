@@ -337,3 +337,90 @@ def test_sentence_transformer_embedding_path(monkeypatch):
         ]
     )
     assert len(separate) == 2, "lexical fallback must not merge unrelated concepts"
+
+
+def test_existing_app_survives_missing_trend_module(monkeypatch):
+    """If the trend package cannot be imported, the voice/text + weather app
+    must still start, serve its endpoints and simply omit trend context."""
+    import fashion_stt.server as server_module
+
+    monkeypatch.setattr(server_module, "TREND_MODULE_AVAILABLE", False)
+    monkeypatch.setattr(server_module, "trend_api_router", None)
+    monkeypatch.setattr(server_module, "bootstrap_trend_module", None)
+    monkeypatch.setattr(server_module, "get_global_trend_context", None)
+
+    app = server_module.create_app(weather_service=_StubWeatherService())
+    with TestClient(app) as client:
+        health = client.get("/api/health").json()
+        assert health["status"] == "healthy"
+        assert health["modules"]["global_trends"]["integrated"] is False
+
+        paths = set(app.openapi()["paths"])
+        assert "/api/understand" in paths
+        assert "/api/weather" in paths
+        assert "/api/v1/trends/context" not in paths
+
+        response = client.post("/api/understand", json={"text": "a light jacket for tomorrow"})
+        assert response.status_code == 200
+        body = response.json()
+        assert body["structured_data"]["intent"]["type"] == "outfit_recommendation"
+        assert body["recommendation_context"]["trend_context"] is None
+        assert body["recommendation_context"]["weather_context"]["available"] is False
+
+
+@pytest.mark.asyncio
+async def test_collection_to_snapshot_end_to_end_offline(temp_trend_db):
+    """Full chain with fixtures: sitemap discovery → article fetch → ingestion →
+    observations/signals → materialized snapshot. No external site is contacted."""
+    from trend_system.bootstrap import bootstrap_trend_module
+
+    await bootstrap_trend_module(force_seed=True)
+    import httpx
+
+    from trend_system.collectors.global_sources.vogue import VogueAdapter
+    from trend_system.database.session import get_async_sessionmaker
+    from trend_system.ingestion.pipeline import ingest_url
+    from trend_system.scheduler.snapshot import materialize_snapshot
+
+    article_url = "https://www.vogue.com/article/fallen-2026-trend-report"
+    sitemap = (
+        "<?xml version='1.0' encoding='UTF-8'?>"
+        f"<urlset><url><loc>{article_url}</loc></url></urlset>"
+    )
+    published = (datetime.now(timezone.utc) - timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    article = ARTICLE_HTML.format(published=published, suffix=" Statement belts completed every look.")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith(".xml"):
+            return httpx.Response(200, text=sitemap, headers={"content-type": "application/xml"})
+        return httpx.Response(200, text=article, headers={"content-type": "text/html"})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        adapter = VogueAdapter(
+            {"source_id": "vogue", "sitemap_url": "https://www.vogue.com/sitemap.xml", "rss_url": None},
+            client,
+        )
+        urls = await adapter.discover_urls(client)
+        assert urls == [article_url]
+
+        page = await adapter.fetch_document(urls[0], client)
+        assert page.status == 200 and page.content
+
+        async with get_async_sessionmaker()() as session:
+            result = await ingest_url(session, "vogue", urls[0], page.content, page.headers)
+            assert result["status"] == "ingested", result
+            assert result["signals"] >= 3
+
+            payload = await materialize_snapshot(
+                session, datetime.now(timezone.utc), exclude_synthetic=True, generated_by="test"
+            )
+            assert payload, "snapshot must contain the ingested trends"
+            concepts = {t["canonical_name"] for t in payload}
+            assert {"red_tailoring", "wide_leg_bottom"} & concepts
+
+            # historical rows are append-only: the snapshot was stored, not merged
+            from sqlalchemy import func, select
+            from trend_system.database.models import TrendSnapshot
+
+            count = (await session.execute(select(func.count()).select_from(TrendSnapshot))).scalar()
+            assert count == 1

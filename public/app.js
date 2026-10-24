@@ -65,6 +65,12 @@ document.addEventListener('DOMContentLoaded', () => {
   const valWeatherCondition = document.getElementById('valWeatherCondition');
   const valWeatherWind = document.getElementById('valWeatherWind');
   const weatherUnavailableNote = document.getElementById('weatherUnavailableNote');
+  const trendStatusPill = document.getElementById('trendStatusPill');
+  const trendSnapshotMeta = document.getElementById('trendSnapshotMeta');
+  const trendSeasonMeta = document.getElementById('trendSeasonMeta');
+  const trendScopeMeta = document.getElementById('trendScopeMeta');
+  const trendList = document.getElementById('trendList');
+  const trendUnavailableNote = document.getElementById('trendUnavailableNote');
   const jsonOutput = document.getElementById('jsonOutput');
   const copyJsonBtn = document.getElementById('copyJsonBtn');
   const ttsAudioPlayer = document.getElementById('ttsAudioPlayer');
@@ -84,6 +90,7 @@ document.addEventListener('DOMContentLoaded', () => {
     weather: null,
     combined: null
   };
+  let latestTrendContext = null;
 
   // Initialize Canvas
   function resizeCanvas() {
@@ -502,11 +509,15 @@ document.addEventListener('DOMContentLoaded', () => {
         };
       }
       renderWeatherContext(relayed.weather);
+      if (latestTrendContext) renderTrendContext(latestTrendContext);
       renderActiveJsonTab();
     } catch (err) {
       console.warn('Weather setting refresh failed:', err);
     }
   }
+
+  // Load the latest global trend snapshot immediately (independent of user input).
+  loadTrendContext(5);
 
   if (locationSettingInput) {
     let locDebounce = null;
@@ -581,6 +592,12 @@ document.addEventListener('DOMContentLoaded', () => {
       latestPayloads.combined = resolvedWeather.combined || data.recommendation_context || null;
 
       renderWeatherContext(latestPayloads.weather);
+      const trendContext = (data.recommendation_context && data.recommendation_context.trend_context) || null;
+      if (trendContext) {
+        renderTrendContext(trendContext);
+      } else {
+        loadTrendContext();
+      }
       renderActiveJsonTab();
 
     } catch (err) {
@@ -893,6 +910,75 @@ document.addEventListener('DOMContentLoaded', () => {
     } catch (err) {
       console.error('File transcription error:', err);
       addChatMessage('system', `Error transcribing ${file.name}: ${err.message}`);
+    }
+  }
+
+  // ---------------------------------------------------------------------
+  // Global Fashion Trend Context (independent module, never blocks the app)
+  // ---------------------------------------------------------------------
+  function renderTrendContext(trendContext) {
+    if (!trendStatusPill || !trendList) return;
+    latestTrendContext = trendContext || null;
+
+    const available = !!(trendContext && trendContext.available && Array.isArray(trendContext.trends) && trendContext.trends.length);
+    if (!available) {
+      const status = trendContext ? trendContext.status : null;
+      trendStatusPill.className = 'weather-status-pill unavailable';
+      trendStatusPill.textContent = status === 'no_snapshot' ? 'No Snapshot Yet' : 'Unavailable';
+      if (trendSnapshotMeta) trendSnapshotMeta.textContent = 'Snapshot: \u2014';
+      if (trendSeasonMeta) trendSeasonMeta.textContent = 'Season: \u2014';
+      if (trendScopeMeta) trendScopeMeta.textContent = 'Scope: global';
+      trendList.innerHTML = '<p class="trend-empty">Trend context is not available right now. Voice, text and weather keep working normally.</p>';
+      if (trendUnavailableNote) {
+        if (trendContext && trendContext.message) {
+          trendUnavailableNote.style.display = 'block';
+          trendUnavailableNote.textContent = trendContext.message;
+        } else {
+          trendUnavailableNote.style.display = 'none';
+        }
+      }
+      return;
+    }
+
+    trendStatusPill.className = 'weather-status-pill available';
+    trendStatusPill.textContent = `${trendContext.trends.length} Trends Ready`;
+    const snapshotDate = (trendContext.snapshot_time_utc || '').slice(0, 10);
+    if (trendSnapshotMeta) trendSnapshotMeta.textContent = `Snapshot: ${snapshotDate || '\u2014'}`;
+    if (trendSeasonMeta) trendSeasonMeta.textContent = `Season: ${trendContext.season || '\u2014'}`;
+    if (trendScopeMeta) trendScopeMeta.textContent = `Scope: ${(trendContext.meta && trendContext.meta.scope) || 'global'}`;
+    if (trendUnavailableNote) trendUnavailableNote.style.display = 'none';
+
+    trendList.innerHTML = trendContext.trends.map((t, index) => {
+      const score = Math.max(0, Math.min(100, (t.trend_score || 0) * 100));
+      const lifecycle = t.lifecycle ? `<span class="trend-tag lifecycle">${escapeHtml(t.lifecycle)}</span>` : '';
+      const category = t.category ? `<span class="trend-tag">${escapeHtml(t.category)}</span>` : '';
+      const sources = t.supporting_sources ? `${t.supporting_sources} source${t.supporting_sources === 1 ? '' : 's'}` : '';
+      const evidence = t.evidence_count ? `${t.evidence_count} signals` : '';
+      const meta = [sources, evidence].filter(Boolean).join(' \u2022 ');
+      return `
+        <div class="trend-row">
+          <span class="trend-rank">#${index + 1}</span>
+          <div class="trend-main">
+            <div class="trend-title">
+              <strong>${escapeHtml(t.canonical_name || 'trend')}</strong>
+              ${category}${lifecycle}
+            </div>
+            <div class="trend-bar"><span style="width:${score.toFixed(1)}%"></span></div>
+            ${meta ? `<span class="trend-footnote">${escapeHtml(meta)}</span>` : ''}
+          </div>
+          <div class="trend-score"><strong>${score.toFixed(0)}</strong><span>score</span></div>
+        </div>`;
+    }).join('');
+  }
+
+  async function loadTrendContext(limit = 5) {
+    try {
+      const res = await fetch(`/api/v1/trends/context?limit=${limit}`);
+      if (!res.ok) throw new Error(`status ${res.status}`);
+      renderTrendContext(await res.json());
+    } catch (err) {
+      console.warn('Trend context unavailable:', err);
+      renderTrendContext({ available: false, status: 'unavailable', message: 'Trend API is not reachable.' });
     }
   }
 

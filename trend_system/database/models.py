@@ -1,9 +1,9 @@
 from __future__ import annotations
 from datetime import datetime, timezone
 from sqlalchemy import (
-    Column, Integer, Text, Boolean, Float, DateTime, JSON, Index, ForeignKey, String, UniqueConstraint
+    Column, Integer, Text, Boolean, Float, DateTime, JSON, Index, ForeignKey, String
 )
-from sqlalchemy.orm import declarative_base, relationship
+from sqlalchemy.orm import declarative_base
 # JSON is used instead of PostgreSQL JSONB so the schema stays portable to SQLite.
 # (An optional deployment may still use PostgreSQL via DATABASE_URL.)
 

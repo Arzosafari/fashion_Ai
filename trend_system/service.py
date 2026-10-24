@@ -109,16 +109,12 @@ async def get_trends_for_recommendation(
         # list so consumers still receive evidence-backed trends.
         selected = actionable or items
 
-    if season:
-        normalized = season.lower()
-        matching = [
-            t
-            for t in selected
-            if str(t.get("season", "")).lower() == normalized
-            or normalized in str(t.get("explanation", "")).lower()
-        ]
-        if matching:
-            selected = matching
+    # A snapshot is materialized for exactly one season.  Trends do not carry
+    # their own season label, so a *different* requested season can only be
+    # served by keeping the current snapshot intact (never fabricate a season).
+    requested_season = season.lower() if season else None
+    snapshot_season = (snapshot.season or "").lower()
+    season_matches = requested_season is None or requested_season == snapshot_season
 
     selected = sorted(
         selected,
@@ -132,12 +128,13 @@ async def get_trends_for_recommendation(
         "message": None,
         "snapshot_time_utc": _iso(snapshot.snapshot_time_utc),
         "snapshot_time_jalali": snapshot.snapshot_time_jalali,
-        "season": season or snapshot.season,
+        "season": snapshot.season,
         "trends": selected,
         "meta": {
             "scoring_version": snapshot.scoring_version,
             "scoring_mode": snapshot.scoring_mode,
             "total": len(items),
+            "season_matches_snapshot": season_matches,
         },
     }
 

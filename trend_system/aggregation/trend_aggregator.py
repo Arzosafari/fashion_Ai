@@ -1,7 +1,5 @@
 from __future__ import annotations
-from datetime import datetime, timezone, timedelta
-from collections import defaultdict
-import math
+from datetime import datetime, timedelta
 from trend_system.config import get_scoring_config
 from trend_system.utils.calendar import to_jalali_dict
 from trend_system.scoring.trend_score import compute_trend_score_for_signals

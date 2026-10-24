@@ -1,7 +1,6 @@
 from __future__ import annotations
 import re
-from typing import List, Dict
-from trend_system.normalization.taxonomy import get_taxonomy_map
+from typing import Dict
 
 # Simple gazetteer-based extraction + regex
 
