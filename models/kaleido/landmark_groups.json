@@ -1,0 +1,284 @@
+{
+ "_comment": "Landmark numbers exactly as printed in the DeepFashion2 figure (1-based). upper_boundary = neckline on tops/dresses, waistband on bottoms. side holds one group per side; the loader subtracts 1 for array indexing.",
+ "short sleeve top": {
+  "upper_boundary": [
+   1,
+   2,
+   3,
+   4,
+   5,
+   6
+  ],
+  "side": [
+   [
+    9,
+    10,
+    11
+   ],
+   [
+    21,
+    22,
+    23
+   ]
+  ],
+  "hem": [
+   15,
+   16,
+   17
+  ]
+ },
+ "long sleeve top": {
+  "upper_boundary": [
+   1,
+   2,
+   3,
+   4,
+   5,
+   6
+  ],
+  "side": [
+   [
+    11,
+    12
+   ],
+   [
+    28,
+    29
+   ]
+  ],
+  "hem": [
+   19,
+   20,
+   21
+  ]
+ },
+ "short sleeve outwear": {
+  "upper_boundary": [
+   1,
+   2,
+   3,
+   4,
+   5,
+   6,
+   26
+  ],
+  "side": [
+   [
+    9,
+    10,
+    11
+   ],
+   [
+    21,
+    22,
+    23
+   ]
+  ],
+  "hem": [
+   15,
+   16,
+   29,
+   17
+  ]
+ },
+ "long sleeve outwear": {
+  "upper_boundary": [
+   1,
+   2,
+   3,
+   4,
+   5,
+   6,
+   34
+  ],
+  "side": [
+   [
+    11,
+    12
+   ],
+   [
+    28,
+    29
+   ]
+  ],
+  "hem": [
+   19,
+   20,
+   37,
+   21
+  ]
+ },
+ "vest": {
+  "upper_boundary": [
+   1,
+   2,
+   3,
+   4,
+   5,
+   6
+  ],
+  "hem": [
+   10,
+   11,
+   12
+  ]
+ },
+ "sling": {
+  "upper_boundary": [
+   1,
+   2,
+   3,
+   4,
+   5,
+   6
+  ],
+  "hem": [
+   10,
+   11,
+   12
+  ]
+ },
+ "shorts": {
+  "upper_boundary": [
+   1,
+   2,
+   3
+  ],
+  "side": [
+   [
+    4,
+    5,
+    6
+   ],
+   [
+    8,
+    9,
+    10
+   ]
+  ],
+  "hem": [
+   5,
+   6,
+   8,
+   9
+  ]
+ },
+ "trousers": {
+  "upper_boundary": [
+   1,
+   2,
+   3
+  ],
+  "side": [
+   [
+    5,
+    6,
+    7
+   ],
+   [
+    11,
+    12,
+    13
+   ]
+  ],
+  "hem": [
+   6,
+   7,
+   11,
+   12
+  ]
+ },
+ "skirt": {
+  "upper_boundary": [
+   1,
+   2,
+   3
+  ],
+  "hem": [
+   5,
+   6,
+   7
+  ]
+ },
+ "short sleeve dress": {
+  "upper_boundary": [
+   1,
+   2,
+   3,
+   4,
+   5,
+   6
+  ],
+  "side": [
+   [
+    9,
+    10,
+    11
+   ],
+   [
+    26,
+    27
+   ]
+  ],
+  "hem": [
+   17,
+   18,
+   19
+  ]
+ },
+ "long sleeve dress": {
+  "upper_boundary": [
+   1,
+   2,
+   3,
+   4,
+   5,
+   6
+  ],
+  "side": [
+   [
+    11,
+    12
+   ],
+   [
+    32,
+    33
+   ]
+  ],
+  "hem": [
+   21,
+   22,
+   23
+  ]
+ },
+ "vest dress": {
+  "upper_boundary": [
+   1,
+   2,
+   3,
+   4,
+   5,
+   6
+  ],
+  "hem": [
+   12,
+   13,
+   14
+  ]
+ },
+ "sling dress": {
+  "upper_boundary": [
+   1,
+   2,
+   3,
+   4,
+   5,
+   6
+  ],
+  "hem": [
+   12,
+   13,
+   14
+  ]
+ }
+}
