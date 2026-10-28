@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Profile &amp; Personalization — Fashion AI</title>
+  <link rel="stylesheet" href="style.css?v=2.2.4">
+  <link rel="stylesheet" href="profile.css">
+</head>
+<body>
+  <div class="app-container profile-container">
+    <header class="app-header">
+      <div class="header-brand">
+        <div class="brand-badge">FASHION AI &bull; PERSONALIZATION</div>
+        <h1 class="brand-title">ATELIER<span>INTELLIGENCE</span></h1>
+        <p class="brand-subtitle">Your preferences, ready for the next conversation.</p>
+      </div>
+      <nav aria-label="Main navigation"><a class="btn-ghost profile-nav" href="/">← Back to dialogue</a></nav>
+    </header>
+    <main>
+      <div class="profile-intro">
+        <div><div class="profile-eyebrow">YOUR ATELIER / 01</div><h2>Profile &amp; preferences</h2>
+        <p>Make your experience more personal. Every field is optional, and you can change your choices anytime.</p></div>
+        <div class="profile-privacy">◈ <strong>Thoughtfully personal</strong><br>Only relevant preferences are included with your requests. Your personal details and notes stay out of the recommendation context.</div>
+      </div>
+      <div class="profile-notice" id="profileNotice" role="status" aria-live="polite">Loading your profile…</div>
+      <form id="profileForm" hidden>
+        <div id="profileSections"></div>
+        <div class="profile-actions">
+          <p>Changes apply to your next request. A one-time request never changes your profile.</p>
+          <div><button type="button" class="btn-ghost" id="cancelProfile">Cancel</button> <button type="submit" class="btn-gold" id="saveProfile">Save changes</button></div>
+        </div>
+      </form>
+    </main>
+  </div>
+  <script src="profile.js"></script>
+</body>
+</html>

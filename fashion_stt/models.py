@@ -6,6 +6,7 @@ weather context, and aggregated recommendation context.
 
 from typing import List, Optional, Dict, Any, Literal
 from pydantic import BaseModel, Field
+from .profile import ProfileContext
 
 
 class IntentModel(BaseModel):
@@ -224,6 +225,7 @@ class RecommendationContext(BaseModel):
     """
     request_context: FashionRequestOutput
     weather_context: WeatherContext
+    profile_context: Optional[ProfileContext] = Field(default=None, description="Privacy-scoped saved preferences; current request takes precedence.")
     trend_context: Optional[TrendContext] = Field(
         default=None,
         description="Global fashion trend context (optional; weather and trends are independent)."
