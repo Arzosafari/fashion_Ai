@@ -11,12 +11,13 @@ import datetime
 import logging
 from contextlib import asynccontextmanager
 from typing import Optional, List, Dict, Any
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File, Form, HTTPException, Query, Response
+from fastapi import Request, FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File, Form, HTTPException, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel
 
+from .profile import router as profile_router, context_for_request
 from .engine import RealtimeTranscriber
 from .extractor import FashionEntityExtractor
 from .conversation import ConversationManager
@@ -292,6 +293,8 @@ def create_app(
             response.headers["Cache-Control"] = "no-store, max-age=0"
         return response
 
+    app.include_router(profile_router)
+
     # Global Fashion Trend API (/api/v1/trends/*, /api/v1/sources/*)
     if trends_enabled:
         app.include_router(trend_api_router, prefix="/api/v1")
@@ -403,7 +406,7 @@ def create_app(
         )
 
     @app.post("/api/weather/resolve", response_model=WeatherResolveResponse)
-    async def resolve_weather_from_relay(payload: WeatherResolveRequest):
+    async def resolve_weather_from_relay(payload: WeatherResolveRequest, request: Request):
         """
         Validates raw Open-Meteo JSON payloads through `WeatherAgent` schema parsers,
         stores fresh entries in `WeatherCache`, and binds separated `WeatherContext` to
@@ -427,6 +430,7 @@ def create_app(
                 recommendation_context = RecommendationContext(
                     request_context=session.active_request.model_copy(deep=True),
                     weather_context=weather_context,
+                    profile_context=await context_for_request(request, session.active_request),
                 )
 
         return WeatherResolveResponse(
@@ -435,7 +439,7 @@ def create_app(
         )
 
     @app.post("/api/understand", response_model=UnderstandResponse)
-    async def understand_user_request(payload: UnderstandRequest):
+    async def understand_user_request(payload: UnderstandRequest, request: Request):
         """
         Unified Request Understanding & Context Integration Endpoint.
         1. Extracts structured user request features independently via ConversationManager.
@@ -474,6 +478,9 @@ def create_app(
                     )
                 except Exception as exc:
                     logger.warning("Global trend context unavailable: %s", exc)
+
+            profile_context = await context_for_request(request, structured_data)
+            recommendation_context = recommendation_context.model_copy(update={"profile_context": profile_context})
 
             # Generate TTS URL for spoken audio feedback
             import urllib.parse

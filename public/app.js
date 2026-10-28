@@ -423,7 +423,7 @@ document.addEventListener('DOMContentLoaded', () => {
               const parsedInvalid = await invalidRes.json();
               return {
                 weather: parsedInvalid.weather_context,
-                combined: parsedInvalid.recommendation_context || latestPayloads.combined
+                combined: latestPayloads.combined ? { ...latestPayloads.combined, weather_context: parsedInvalid.weather_context } : parsedInvalid.recommendation_context
               };
             }
           }
@@ -488,7 +488,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const resolved = await resolveRes.json();
       return {
         weather: resolved.weather_context,
-        combined: resolved.recommendation_context || latestPayloads.combined
+        combined: latestPayloads.combined ? { ...latestPayloads.combined, weather_context: resolved.weather_context } : resolved.recommendation_context
       };
     } catch (relayErr) {
       console.warn('Live Open-Meteo relay unavailable:', relayErr);

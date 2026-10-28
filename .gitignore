@@ -56,3 +56,7 @@ audio_cache/
 # Packaging artifacts
 fashion-stt.zip
 push_to_github.sh
+
+# Private local profile data
+profiles.db
+profiles.db-*
