@@ -11,7 +11,7 @@ from trend_system.api.schemas import (
     TrendsSnapshotResponse,
 )
 from trend_system.database.models import Trend, TrendSnapshot, TrendHistory, TrendEvidence
-from trend_system.service_extensions import start_trend_collection_cycle
+from trend_system.service import start_trend_collection
 
 router = APIRouter(
     prefix="/trends",
@@ -29,7 +29,7 @@ async def start_collection(
     This calls the collection → ingestion → snapshot pipeline.
     """
     try:
-        result = await start_trend_collection_cycle(
+        result = await start_trend_collection(
             limit_per_source=limit_per_source,
             exclude_synthetic=exclude_synthetic
         )
