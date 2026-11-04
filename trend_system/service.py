@@ -139,6 +139,25 @@ async def get_trends_for_recommendation(
     }
 
 
+async def start_trend_collection(limit_per_source: int | None = None, exclude_synthetic: bool = True) -> dict:
+    """Trigger collection → ingestion → snapshot cycle when a new trend cycle starts."""
+    from scripts.run_collector import live_run
+    from trend_system.config import get_settings
+
+    settings = get_settings()
+    limit = limit_per_source or int(settings.TREND_COLLECTION_MAX_URLS)
+    
+    # Run the collection pipeline
+    logger.info("Starting trend collection cycle (triggered by new trend start)...")
+    payload = await live_run(limit_per_source=limit, exclude_synthetic=exclude_synthetic)
+    
+    return {
+        "finished_at": datetime.now(timezone.utc).isoformat(),
+        "status": "collection_started_and_completed",
+        "result": payload
+    }
+
+
 async def get_trend_context(limit: int = 5) -> dict:
     """Compact trend context for the existing request-understanding pipeline."""
     result = await get_trends_for_recommendation(limit=limit, actionable_only=True)
