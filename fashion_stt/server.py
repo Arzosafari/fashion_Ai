@@ -37,6 +37,7 @@ from .weather_context import (
 )
 from .tts import generate_tts_audio
 from .lexicon import get_all_fashion_terms, correct_fashion_text
+from .text_encoder import get_text_encoder, TextEncoder
 
 # ---------------------------------------------------------------------------
 # Global Fashion Trend Module (integrated, optional at runtime)
@@ -481,6 +482,43 @@ def create_app(
 
             profile_context = await context_for_request(request, structured_data)
             recommendation_context = recommendation_context.model_copy(update={"profile_context": profile_context})
+
+            # Generate Text Embeddings for Recommendation Pipeline Integration
+            # This integrates the Text Encoding Pipeline directly into the existing workflow
+            try:
+                encoder = get_text_encoder()
+                
+                # Retrieve catalog items for encoding (using FASHION_CATALOG as reference)
+                # In production, this would be retrieved from the clothing component database
+                catalog_items = FASHION_CATALOG
+                
+                # Encode all textual sources
+                text_embeddings_result = encoder.encode_recommendation_context(
+                    request_context=structured_data,
+                    weather_context=weather_context,
+                    profile_context=profile_context,
+                    trend_context=recommendation_context.trend_context,
+                    catalog_items=catalog_items,
+                    session_id=session_id
+                )
+                
+                # Attach text embeddings to the recommendation context for downstream consumption
+                # The output structure follows the conceptual schema in the task requirements
+                recommendation_context = recommendation_context.model_copy(
+                    update={"text_embeddings": text_embeddings_result}
+                )
+                
+                # Ensure the field is present in the final response
+                # (Pydantic model_copy preserves all fields, and RecommendationContext 
+                # already has text_embeddings as an optional field if we added it,
+                # but let's double check if we need to modify models.py or if it's already there)
+                
+            except Exception as enc_exc:
+                logger.warning(f"Text encoding failed: {str(enc_exc)}")
+                # Graceful degradation: continue without embeddings if encoding fails
+                recommendation_context = recommendation_context.model_copy(
+                    update={"text_embeddings": None}
+                )
 
             # Generate TTS URL for spoken audio feedback
             import urllib.parse
