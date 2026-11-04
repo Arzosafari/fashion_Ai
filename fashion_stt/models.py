@@ -230,6 +230,11 @@ class RecommendationContext(BaseModel):
         default=None,
         description="Global fashion trend context (optional; weather and trends are independent)."
     )
+    # Unified text encoding pipeline output (384-dim embeddings for fusion)
+    text_embeddings: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Structured text embeddings output from TextEncoder pipeline (user_request, user_preferences, weather, clothing_items, fashion_trends)."
+    )
 
 
 class UnderstandRequest(BaseModel):
