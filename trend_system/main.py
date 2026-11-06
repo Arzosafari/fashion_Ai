@@ -36,9 +36,24 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Initialise schema/reference data once at startup (never destructive)."""
+    """Initialise schema/reference data once at startup (never destructive).
+
+    When the application starts, it automatically triggers the collection cycle
+    to ensure the latest trends are fetched instead of showing an old snapshot.
+    """
     try:
         info = await bootstrap_trend_module()
+        
+        # AUTO-COLLECTION ON STARTUP: Trigger collection whenever the program runs
+        # to ensure new trends are collected instead of showing old snapshots.
+        from trend_system.service import start_trend_collection
+        logger.info("Program started: Triggering new trend collection cycle...")
+        try:
+            collection_result = await start_trend_collection()
+            logger.info(f"Collection cycle completed: {collection_result['status']}")
+        except Exception as coll_exc:
+            logger.warning(f"Auto-collection on startup failed (will use existing snapshot): {coll_exc}")
+            
     except Exception as exc:  # pragma: no cover - depends on deployment
         logger.exception("Trend module bootstrap failed: %s", exc)
         info = {"status": "failed", "error": str(exc)}
